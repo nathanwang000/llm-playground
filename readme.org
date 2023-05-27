@@ -1,10 +1,18 @@
-here are some of my thought playing with llms
+Here are some of my thought playing with llms
+
+Prompts are quite enigmatic in both langchain and microsoft's guidance. I want
+to explore not depending on those tools and create something more transparent
+and easy to read for end users. Ideally, it shouldn't depend on openAI either
+(instead use vicuna for example).
+
+* open source vicuna stuff
+
+This essentially just follows fastchat instruction, below is how you run it
 
 #+BEGIN_SRC bash
 python -m fastchat.serve.cli --model-path  vicuna-7b/ --device mps
 #+END_SRC
 
-* prompts are quite enigmatic in both langchain and guidance
 * with the react pattern, gpt hallucinate
 
 #+BEGIN_SRC python :results output
