@@ -86,17 +86,17 @@ AI: reset
 
 
 @click.command()
-@click.option('--repl/--no-repl', 'repl_mode',
+@click.option('-r/-R', 'repl_mode', show_default=True,
               default=True, help='whether to run in repl mode')
 @click.option('-q', 'question', prompt=True, prompt_required=False, default="lstools",
-              help="optional command line query")
+              help="optional command line query", show_default=True)
 def main(repl_mode, question):
     cmdline = Cmdline()
-    if repl_mode:
+    if not repl_mode or question != "lstools":
+        click.echo(cmdline(question))
+    else:
         repl(lambda user_input:
              cmdline(user_input))
-    else:
-        click.echo(cmdline(question))
         
 if __name__ == '__main__':
     main()
