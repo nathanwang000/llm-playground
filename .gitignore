@@ -4,3 +4,5 @@ docs/
 fact-checker/
 llama-7b-hf/
 vicuna-7b/
+*~
+tmp*
