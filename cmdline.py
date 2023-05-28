@@ -7,8 +7,7 @@ Runs commands in following order
 3. ask llm
 '''
 import openai
-import re
-import httpx
+import click
 import os
 import subprocess
 from utils import ChatBot, repl, strip_multiline
@@ -85,12 +84,19 @@ AI: reset
             # finally try to ask the chatbot
             return f"{self.chatbot(prompt)}"
 
-def main():
-    cmdline = Cmdline()
-    repl(lambda user_input:
-         cmdline(user_input))
 
+@click.command()
+@click.option('--repl/--no-repl', 'repl_mode',
+              default=True, help='whether to run in repl mode')
+@click.option('-q', 'question', prompt=True, prompt_required=False, default="lstools",
+              help="optional command line query")
+def main(repl_mode, question):
+    cmdline = Cmdline()
+    if repl_mode:
+        repl(lambda user_input:
+             cmdline(user_input))
+    else:
+        click.echo(cmdline(question))
+        
 if __name__ == '__main__':
     main()
-    
-
