@@ -6,7 +6,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter, Completer, Completion
-import openai, os, re, glob
+import openai, os, re, glob, shlex
 import logging
 from tenacity import (
     before_sleep_log,
@@ -19,20 +19,23 @@ from tenacity import (
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
 
+def unquoted_shell_escape(string):
+    '''escape shell string without quotes'''
+    return re.sub(r'([ \\\'"!$`])', r'\\\1', string)
+
 class ShellCompleter(Completer):
     def __init__(self, commands):
         self.command_completer = WordCompleter(commands, ignore_case=True)
 
     def get_completions(self, document, complete_event):
-        # TODO: handle escape characters in shell completion
         # TODO: handle when too many completions
         text_before_cursor = document.text_before_cursor
-        if text_before_cursor == '':
+        chunks = text_before_cursor.split()
+        endwithWS = re.compile('.*\s$')        
+        if len(chunks) <= 1 and not endwithWS.match(text_before_cursor):
             yield from self.command_completer.get_completions(document, complete_event)
         else:
-            chunks = text_before_cursor.split()
-            endwithWS = re.compile('.*\s$')
-            if len(chunks) == 0 or endwithWS.match(text_before_cursor):
+            if endwithWS.match(text_before_cursor):
                 text_to_complete = ''
             else:
                 text_to_complete = chunks[-1]
@@ -45,6 +48,8 @@ class ShellCompleter(Completer):
             fname = os.path.basename(text_to_complete)
             for path in glob.glob(text_to_complete + "*"):
                 cfname = os.path.basename(path)
+                if quote == '':
+                    cfname = unquoted_shell_escape(cfname) # escape without quotes
                 if os.path.isfile(path):
                     cfname = cfname + quote
                 elif os.path.isdir(path):
