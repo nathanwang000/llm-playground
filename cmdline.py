@@ -11,6 +11,8 @@ import click
 import os, glob
 import subprocess
 from utils import ChatBot, repl, strip_multiline
+from utils import ShellCompleter
+
 
 class Cmdline:
     system_prompt = '''
@@ -83,8 +85,7 @@ AI: reset
 
     def get_completer(self):
         '''return autocompleter the current text with the prompt toolkit package'''
-        from prompt_toolkit.completion import WordCompleter
-        return WordCompleter(self.known_actions.keys())
+        return ShellCompleter(self.known_actions.keys())
     
     def __call__(self, prompt):
         prompt = prompt.strip()

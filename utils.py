@@ -4,7 +4,9 @@ from termcolor import colored
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
-import openai, os
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.completion import WordCompleter, Completer, Completion
+import openai, os, re, glob
 import logging
 from tenacity import (
     before_sleep_log,
@@ -17,6 +19,38 @@ from tenacity import (
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
 
+class ShellCompleter(Completer):
+    def __init__(self, commands):
+        self.command_completer = WordCompleter(commands, ignore_case=True)
+
+    def get_completions(self, document, complete_event):
+        # TODO: handle escape characters in shell completion
+        # TODO: handle when too many completions
+        text_before_cursor = document.text_before_cursor
+        if text_before_cursor == '':
+            yield from self.command_completer.get_completions(document, complete_event)
+        else:
+            chunks = text_before_cursor.split()
+            endwithWS = re.compile('.*\s$')
+            if len(chunks) == 0 or endwithWS.match(text_before_cursor):
+                text_to_complete = ''
+            else:
+                text_to_complete = chunks[-1]
+
+            quote = ""
+            directory = os.path.dirname(text_to_complete)
+            if directory:
+                if directory[0] in ["'", '"']:
+                    quote = directory[0]
+            fname = os.path.basename(text_to_complete)
+            for path in glob.glob(text_to_complete + "*"):
+                cfname = os.path.basename(path)
+                if os.path.isfile(path):
+                    cfname = cfname + quote
+                elif os.path.isdir(path):
+                    cfname = cfname + "/"
+                yield Completion(cfname, start_position=-len(fname))
+            
 def create_retry_decorator(max_tries=3, min_seconds=4, max_seconds=10):
     # from langchain's _create_retry_decorator
     # Wait 2^x * 1 second between each retry starting with
@@ -58,9 +92,15 @@ class ChatBot:
         return completion.choices[0].message.content
     
 def get_input_prompt_session(color='ansired'):
+    if not os.environ.get('SHELL_HISTORY'):
+        print('no environment variable SHELL_HISTORY found, history disabled')
+        history = None
+    else:
+        history = FileHistory(os.environ['SHELL_HISTORY'])
     return PromptSession(
         style=Style.from_dict({'prompt':
                                color}),
+        history=history
     )
     
 def repl(f,
@@ -74,7 +114,10 @@ def repl(f,
     session = get_input_prompt_session('ansired')
     while True:
         try:
-            user_input = session.prompt(message=input_prompt, completer=completer)
+            user_input = session.prompt(message=input_prompt,
+                                        auto_suggest=AutoSuggestFromHistory(),
+                                        completer=completer,
+                                        complete_while_typing=False)
             if user_input.strip() == "":
                 continue
 
