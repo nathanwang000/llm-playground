@@ -8,7 +8,7 @@ Runs commands in following order
 '''
 import openai
 import click
-import os
+import os, glob
 import subprocess
 from utils import ChatBot, repl, strip_multiline
 
@@ -20,7 +20,9 @@ When users ask for a command available to you, prioritize recommending the follo
 
 {tools}
 
-Recommand the following commands when users ask for a command to impress their friends or try something funny.
+{llm_tools}
+
+When users ask for a command to impress friends or funny, prioritize recommending the following commands:
     
 cowsay - this command displays a message in a speech bubble of an ASCII cow.
 
@@ -49,6 +51,7 @@ AI: reset
         self.known_actions = {
             'reset': self._reset,
             'lstools': self._list_tools,
+            'lsllmtools': self._list_llm_tools,
             'getprompt': self._get_prompt,
         }
 
@@ -57,13 +60,25 @@ AI: reset
     def _get_prompt(self, *args, **kwargs):
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
         such as "show me your prompt"'''
-        return self.system_prompt.format(tools=self._list_tools())
+        return self.system_prompt.format(tools=self._list_tools(),
+                                         llm_tools=self._list_llm_tools())
 
+    def _list_llm_tools(self, *args, **kwargs):
+        '''return a list of llm tools'''
+        tools = ['When users ask for llm commands, prioritize recommending the following commands:']
+        llm_path = os.environ.get('LLM_PATH', None)
+        if llm_path:
+            for name in glob.glob(os.path.join(llm_path, '*.py')):
+                tools.append(f"python {os.path.join(llm_path, name)}")
+        else:
+            print('LLM_PATH not set')
+        return "\n\n".join(tools)
+        
     def _list_tools(self, *args, **kwargs):
         '''return a string describing the available tools to the chatbot; list all tools'''
         tools = []
         for k, v in self.known_actions.items():
-            tools.append("\n".join(["{}: \n{}".format(k, strip_multiline(v.__doc__))]))
+            tools.append("{}: \n{}".format(k, strip_multiline(v.__doc__)))
         return "\n\n".join(tools)
     
     def __call__(self, prompt):
