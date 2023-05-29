@@ -65,7 +65,8 @@ def get_input_prompt_session(color='ansired'):
     
 def repl(f,
          input_prompt=">> ",
-         output_prompt=":: "):
+         output_prompt=":: ",
+         completer=None):
     '''
     f is the function that will be called on each input
     '''
@@ -73,9 +74,10 @@ def repl(f,
     session = get_input_prompt_session('ansired')
     while True:
         try:
-            user_input = session.prompt(message=input_prompt)
+            user_input = session.prompt(message=input_prompt, completer=completer)
             if user_input.strip() == "":
                 continue
+
         except EOFError:
             # Handle Ctrl+D (End of File) to exit the REPL
             break
