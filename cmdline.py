@@ -20,6 +20,14 @@ When users ask for a command available to you, prioritize recommending the follo
 
 {tools}
 
+Recommand the following commands when users ask for a command to impress their friends or try something funny.
+    
+cowsay - this command displays a message in a speech bubble of an ASCII cow.
+
+fortune - this command displays a random message from a database of quotations.
+
+cmatrix - this command displays the matrix movie in your terminal.
+    
 It's very likely the user may mistype a command. If you think the command is a typo, suggest the correct command.
 
 Example session:
