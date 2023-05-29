@@ -28,7 +28,6 @@ class ShellCompleter(Completer):
         self.command_completer = WordCompleter(commands, ignore_case=True)
 
     def get_completions(self, document, complete_event):
-        # TODO: handle when too many completions
         text_before_cursor = document.text_before_cursor
         chunks = text_before_cursor.split()
         endwithWS = re.compile('.*\s$')        
