@@ -3,8 +3,8 @@ import re
 import httpx
 import os
 from termcolor import colored
-from utils import ChatBot, repl
-from utils import get_input_prompt_session
+from lib.utils import ChatBot, repl
+from lib.utils import get_input_prompt_session
 
 def moderator_prompt(topic, role1, role2):
     return f"""

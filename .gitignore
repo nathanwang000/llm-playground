@@ -6,3 +6,4 @@ llama-7b-hf/
 vicuna-7b/
 *~
 tmp*
+playground/wandb/wandb

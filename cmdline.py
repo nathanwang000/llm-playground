@@ -10,8 +10,8 @@ import openai
 import click
 import os, glob, re
 import subprocess
-from utils import ChatBot, repl, strip_multiline
-from utils import ShellCompleter
+from lib.utils import ChatBot, repl, strip_multiline
+from lib.utils import ShellCompleter
 
 class Cmdline:
     system_prompt = '''

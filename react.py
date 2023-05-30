@@ -6,7 +6,7 @@ import re
 import httpx
 import os
 import click
-from utils import ChatBot, repl
+from lib.utils import ChatBot, repl
  
 prompt = """
 You run in a loop of Thought, Action, Observation.

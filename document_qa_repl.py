@@ -4,7 +4,7 @@ from langchain.indexes import VectorstoreIndexCreator
 from langchain.chains.question_answering import load_qa_chain
 from langchain.chains.qa_with_sources import load_qa_with_sources_chain
 from langchain.llms.openai import OpenAI
-from utils import load_doc, repl, get_input_prompt_session
+from lib.utils import load_doc, repl, get_input_prompt_session
 import glob
 
 def main():
