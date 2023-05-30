@@ -152,14 +152,14 @@ AI: Do you mean the "r" command that resets the chatbot session?
 @click.option('-q', 'question',
               prompt=True,
               prompt_required=False,
-              default="lstools",
+              default="",
               help="optional command line query",
               show_default=True)
 def main(repl_mode, question):
     print('limitation: does not respect history and aliases b/c non-interactive shell')
     print('if want aliases, override the command and prepend the binary path to $PATH')
     cmdline = Cmdline()
-    if not repl_mode or question != "lstools":
+    if not repl_mode or question != "":
         click.echo(cmdline(question))
     else:
         repl(lambda user_input:

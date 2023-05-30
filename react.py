@@ -5,6 +5,7 @@ import openai
 import re
 import httpx
 import os
+import click
 from utils import ChatBot, repl
  
 prompt = """
@@ -119,7 +120,10 @@ for k, v in known_actions.items():
                                                                   v.__doc__.strip())]))
 prompt = prompt.format(tools="\n\n".join(tools))
 
-if __name__ == "__main__":
-    repl(lambda user_input:
-         query(user_input))
+@click.command()
+@click.option('-q', 'question', prompt='Question', help='Question to ask')
+def main(question):
+    click.echo(query(question))
     
+if __name__ == "__main__":
+    main()
