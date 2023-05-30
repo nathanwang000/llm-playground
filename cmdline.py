@@ -41,9 +41,9 @@ User: list files in the current directory
 AI: The following command lists all files in the current directory.
     command: ls
 
-User: resettt
-AI: Do you mean the "reset" command that resets the chatbot session?
-    command: reset
+User: rr
+AI: Do you mean the "r" command that resets the chatbot session?
+    command: r
     '''
     def __init__(self):
         self._reset()
@@ -54,11 +54,11 @@ AI: Do you mean the "reset" command that resets the chatbot session?
         can be called stating "reset" in the prompt
         '''
         self.known_actions = {
-            'reset': self._reset,
-            'lstools': self._list_tools,
-            'lsllmtools': self._list_llm_tools,
-            'getprompt': self._get_prompt,
-            'runlastcommandfromllm': self._run_last_command_from_llm,
+            'r': self._reset,
+            'l': self._list_tools,
+            'll': self._list_llm_tools,
+            'p': self._get_prompt,
+            'e': self._run_last_command_from_llm,
         }
 
         self.chatbot = ChatBot(self._get_prompt())
