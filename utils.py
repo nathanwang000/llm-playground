@@ -106,7 +106,7 @@ def get_input_prompt_session(color='ansired'):
                                color}),
         history=history
     )
-    
+
 def repl(f,
          input_prompt=">> ",
          output_prompt=":: ",

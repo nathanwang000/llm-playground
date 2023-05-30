@@ -134,7 +134,7 @@ AI: Do you mean the "reset" command that resets the chatbot session?
                 # subprocess start a new process, thus forgetting aliases and history
                 # see https://stackoverflow.com/questions/12060863/python-subprocess-call-a-bash-alias
                 # the hack of using bash -i -c "command" is not working
-                # better to just export the aliases as function with "export -f"
+                # better to just override system command by prepending to $PATH
                 # and use shared history file (search chatgpt)
                 subprocess.run(prompt, check=True, shell=True)
         except Exception as e:
@@ -156,6 +156,8 @@ AI: Do you mean the "reset" command that resets the chatbot session?
               help="optional command line query",
               show_default=True)
 def main(repl_mode, question):
+    print('limitation: does not respect history and aliases b/c non-interactive shell')
+    print('if want aliases, override the command and prepend the binary path to $PATH')
     cmdline = Cmdline()
     if not repl_mode or question != "lstools":
         click.echo(cmdline(question))
