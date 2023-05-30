@@ -29,13 +29,15 @@ I personally like cmdline best
 python cmdline.py
 #+END_SRC
 
-* open source vicuna stuff
+* interestingly, llm got more answers correct if asked to output answer at the end than front
 
-This essentially just follows fastchat instruction, below is how you run it
+I observed this when asking the cmdline agent to either
+a) lead the answer with the command or
+b) append the command after the answer
 
-#+BEGIN_SRC bash
-python -m fastchat.serve.cli --model-path  vicuna-7b/ --device mps
-#+END_SRC
+The second case worked much better. This could be due to the fact that model have time to peruse its thought when final answer comes at last (it sees the process), given that transformers are conditioned out previous output. I could more rigoriously investigate this phenomena by asking math questions.
+
+This might be also related to recency bias in llm.
 
 * with the react pattern, gpt hallucinate
 
@@ -161,3 +163,11 @@ turn: 4
 wizard: You too!
 scientist: Thank you!
 #+end_example
+
+* using open source vicuna
+
+This essentially just follows fastchat instruction, below is how you run it
+
+#+BEGIN_SRC bash
+python -m fastchat.serve.cli --model-path  vicuna-7b/ --device mps
+#+END_SRC

@@ -8,11 +8,10 @@ Runs commands in following order
 '''
 import openai
 import click
-import os, glob
+import os, glob, re
 import subprocess
 from utils import ChatBot, repl, strip_multiline
 from utils import ShellCompleter
-
 
 class Cmdline:
     system_prompt = '''
@@ -32,15 +31,19 @@ fortune - this command displays a random message from a database of quotations.
 
 cmatrix - this command displays the matrix movie in your terminal.
     
-It's very likely the user may mistype a command. If you think the command is a typo, suggest the correct command.
+It's very likely the user mistypes a command. If you think the command is a typo, suggest the correct command.
 
+At the end of your response, add a newline and output the command you are suggesting (e.g., command: <executable command>).
+    
 Example session:
 
 User: list files in the current directory
-AI: ls .
+AI: The following command lists all files in the current directory.
+    command: ls
 
 User: resettt
-AI: reset
+AI: Do you mean the "reset" command that resets the chatbot session?
+    command: reset
     '''
     def __init__(self):
         self._reset()
@@ -55,10 +58,30 @@ AI: reset
             'lstools': self._list_tools,
             'lsllmtools': self._list_llm_tools,
             'getprompt': self._get_prompt,
+            'runlastcommandfromllm': self._run_last_command_from_llm,
         }
 
         self.chatbot = ChatBot(self._get_prompt())
 
+    def _run_last_command_from_llm(self):
+        '''run the last command from llm output'''
+        command_re = re.compile(r'^[Cc]ommand: (.*)$')
+        for message in self.chatbot.messages[::-1]:
+            if message['role'] == 'assistant':
+                llm_output = message['content']
+                commands = [command_re.match(c.strip()).groups()[0] for c in llm_output.split('\n') if command_re.match(c.strip())]
+                if commands:
+                    c = commands[-1]
+                    if input(f'run "{c}" [y|n]? ') == 'y':
+                        o = self(c)
+                        if o: print(o)
+                        return
+                    else:
+                        print('abort')
+                        return
+
+        print('no command found in previous llm output')
+        
     def _get_prompt(self, *args, **kwargs):
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
         such as "show me your prompt"'''
@@ -111,6 +134,8 @@ AI: reset
                 response = subprocess.run(prompt, check=True, shell=True)
         except Exception as e:
             # finally try to ask the chatbot
+            postfix_message = 'remember to add "command: <executable command>" at the end of your response in a new line'
+            prompt = prompt + '\n' + postfix_message
             return f"{self.chatbot(prompt)}"
 
 

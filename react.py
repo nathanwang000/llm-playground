@@ -5,7 +5,7 @@ import openai
 import re
 import httpx
 import os
-from utils import ChatBot
+from utils import ChatBot, repl
  
 prompt = """
 You run in a loop of Thought, Action, Observation.
@@ -103,7 +103,8 @@ def calculate(what):
     '''
     Runs a calculation and returns the number - uses Python so be sure to use floating point syntax if necessary
     '''
-    return eval(what)
+    from sympy import simplify
+    return simplify(what)
 
 known_actions = { # like load tools for langchain
     "wikipedia": wikipedia,
@@ -117,3 +118,8 @@ for k, v in known_actions.items():
     tools.append("\n".join(["{}: \ne.g., {}: <query> \n{}".format(k, k,
                                                                   v.__doc__.strip())]))
 prompt = prompt.format(tools="\n\n".join(tools))
+
+if __name__ == "__main__":
+    repl(lambda user_input:
+         query(user_input))
+    
