@@ -64,7 +64,7 @@ AI: Do you mean the "reset" command that resets the chatbot session?
         self.chatbot = ChatBot(self._get_prompt())
 
     def _run_last_command_from_llm(self):
-        '''run the last command from llm output'''
+        '''run the last command from llm output of the form "command: <executable command>"'''
         command_re = re.compile(r'^[Cc]ommand: (.*)$')
         for message in self.chatbot.messages[::-1]:
             if message['role'] == 'assistant':
