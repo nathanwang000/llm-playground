@@ -131,7 +131,12 @@ AI: Do you mean the "reset" command that resets the chatbot session?
                 os.chdir(directory)
                 return directory
             else:
-                response = subprocess.run(prompt, check=True, shell=True)
+                # subprocess start a new process, thus forgetting aliases and history
+                # see https://stackoverflow.com/questions/12060863/python-subprocess-call-a-bash-alias
+                # the hack of using bash -i -c "command" is not working
+                # better to just export the aliases as function with "export -f"
+                # and use shared history file (search chatgpt)
+                subprocess.run(prompt, check=True, shell=True)
         except Exception as e:
             # finally try to ask the chatbot
             postfix_message = 'remember to add "command: <executable command>" at the end of your response in a new line'

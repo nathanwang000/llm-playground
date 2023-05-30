@@ -37,7 +37,7 @@ class ShellCompleter(Completer):
             if endwithWS.match(text_before_cursor):
                 text_to_complete = ''
             else:
-                text_to_complete = chunks[-1]
+                text_to_complete = os.path.expanduser(chunks[-1])
 
             quote = ""
             directory = os.path.dirname(text_to_complete)
