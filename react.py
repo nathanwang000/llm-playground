@@ -7,7 +7,10 @@ import httpx
 import os
 import click
 from lib.utils import ChatBot, repl
- 
+
+reminder = '''
+Remember to only output one action and stop outputing observation as it will be given to you.
+'''
 prompt = """
 You run in a loop of Thought, Action, Observation.
 At the end of the loop you output an Answer
@@ -38,12 +41,12 @@ action_re = re.compile('^Action: (\w+): (.*)$')
 
 def query(question, max_turns=5):
     i = 0
-    bot = ChatBot(prompt)
+    bot = ChatBot(prompt + '\n' + reminder)
     next_prompt = question
     while i < max_turns:
         print(f"turn: {i}")
         i += 1
-        result = bot(next_prompt)
+        result = bot(next_prompt + '\n' + reminder)
         print(result)
         actions = [action_re.match(a) for a in result.split('\n') if action_re.match(a)]
         if actions:
@@ -103,6 +106,7 @@ def ddgs_text(q, top_n=3):
 def calculate(what):
     '''
     Runs a calculation and returns the number - uses Python so be sure to use floating point syntax if necessary
+    Be sure that the expression can be evaluated safely without error
     '''
     from sympy import simplify
     return simplify(what)
