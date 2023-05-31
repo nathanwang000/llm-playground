@@ -7,7 +7,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter, Completer, Completion
 import openai, os, re, glob, shlex
-import logging
+import logging, tempfile
 from tenacity import (
     before_sleep_log,
     retry,
@@ -88,6 +88,24 @@ class ChatBot:
         self.messages.append({"role": "assistant", "content": result})
         return result
 
+    def save_chat(self, filename=""):
+        '''save chat messages to json file, need to supply filename'''
+        import json
+        if filename != '':
+            with open(filename, "w") as f:
+                json.dump(self.messages, f)
+                print(f'chat messages saved to {filename}')
+        else:
+            with tempfile.NamedTemporaryFile(mode='w+',
+                                             delete=False) as f:
+                json.dump(self.messages, f)
+                print(f'Using tmpfile: {f.name}, as no filename is supplied')
+
+    def load_chat(self, filename):
+        '''load chat messages from json file'''
+        import json
+        self.message = json.load(open(filename, "r"))
+            
     @create_retry_decorator(max_tries=3)
     def execute(self):
         completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=self.messages, stop=self.stop)

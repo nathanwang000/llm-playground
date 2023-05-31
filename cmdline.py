@@ -41,9 +41,9 @@ User: list files in the current directory
 AI: The following command lists all files in the current directory.
     command: ls
 
-User: rr
-AI: Do you mean the "r" command that resets the chatbot session?
-    command: r
+User: resettt
+AI: Do you mean the "reset" command that resets the chatbot session?
+    command: reset
     '''
     def __init__(self):
         self._reset()
@@ -54,14 +54,15 @@ AI: Do you mean the "r" command that resets the chatbot session?
         can be called stating "reset" in the prompt
         '''
         self.known_actions = {
-            'r': self._reset,
+            'reset': self._reset,
             'l': self._list_tools,
             'll': self._list_llm_tools,
             'p': self._get_prompt,
             'e': self._run_last_command_from_llm,
         }
-
         self.chatbot = ChatBot(self._get_prompt())
+        self.known_actions['s'] = self.chatbot.save_chat
+        
 
     def _run_last_command_from_llm(self):
         '''run the last command from llm output of the form "command: <executable command>"'''
@@ -113,13 +114,16 @@ AI: Do you mean the "r" command that resets the chatbot session?
     def __call__(self, prompt):
         prompt = prompt.strip()
         prev_directory = os.getcwd()
-        # first try known actions
-        if prompt in self.known_actions:
-            print('executing bot command {}'.format(prompt))
-            return self.known_actions[prompt]()
 
-        # then try to execute the command
         try:
+            # first try known actions
+            if prompt and prompt.split()[0] in self.known_actions:
+                k = prompt.split()[0]
+                v = prompt[len(k):].strip()
+                print(f'executing bot command {k} {v}')
+                return self.known_actions[k](v)
+
+            # then try to execute the command            
             if prompt.startswith("cd "):
                 # Extract the directory from the input
                 directory = prompt.split("cd ", 1)[1].strip()
