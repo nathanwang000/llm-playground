@@ -16,7 +16,7 @@ utils.py: util shared by multiple files
 ---- the follwing files are not very useful other than for me to learn the tool
 freeform_qa_repl.py: freeform q and a, not very useful given cmdline.py
 guidance_example.py: experiment with the guidance package
-agent_repl.py: langchain tutorial for using tools
+langchain_react.py: langchain version of using tools
 #+end_example
 
 try it yourself

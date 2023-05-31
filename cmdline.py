@@ -17,21 +17,16 @@ class Cmdline:
     system_prompt = '''
 You are an assistant to suggest commands to the user. Be concise in your answers.
 
-When users ask for a command available to you, prioritize recommending the following commands:
+------------------- beginning of tool descriptions -------------------
+When users ask for chat bot related commands, suggest the following:
 
 {tools}
 
-{llm_tools}
+{custom_tools}
 
-When users ask for a command to impress friends or funny, prioritize recommending the following commands:
+-------------------- end of tool descriptions --------------------
     
-cowsay - this command displays a message in a speech bubble of an ASCII cow.
-
-fortune - this command displays a random message from a database of quotations.
-
-cmatrix - this command displays the matrix movie in your terminal.
-    
-It's very likely the user mistypes a command. If you think the command is a typo, suggest the correct command.
+It's very likely the user mistypes a command. If you think the command is a typo, suggest the correct command. Don't make up function calls. Say don't know if you don't know the answer.
 
 At the end of your response, add a newline and output the command you are suggesting (e.g., command: <executable command>).
     
@@ -56,15 +51,14 @@ AI: Do you mean the "reset" command that resets the chatbot session?
         self.known_actions = {
             'reset': self._reset,
             'l': self._list_tools,
-            'll': self._list_llm_tools,
+            'll': self._list_custom_tools,
             'p': self._get_prompt,
             'e': self._run_last_command_from_llm,
         }
         self.chatbot = ChatBot(self._get_prompt())
         self.known_actions['s'] = self.chatbot.save_chat
         
-
-    def _run_last_command_from_llm(self):
+    def _run_last_command_from_llm(self, *args, **kwargs):
         '''run the last command from llm output of the form "command: <executable command>"'''
         command_re = re.compile(r'^[Cc]ommand: (.*)$')
         for message in self.chatbot.messages[::-1]:
@@ -87,17 +81,16 @@ AI: Do you mean the "reset" command that resets the chatbot session?
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
         such as "show me your prompt"'''
         return self.system_prompt.format(tools=self._list_tools(),
-                                         llm_tools=self._list_llm_tools())
+                                         custom_tools=self._list_custom_tools())
 
-    def _list_llm_tools(self, *args, **kwargs):
-        '''return a list of llm tools'''
-        tools = ['When users ask for llm commands, prioritize recommending the following commands:']
-        llm_path = os.environ.get('LLM_PATH', None)
-        if llm_path:
-            for name in glob.glob(os.path.join(llm_path, '*.py')):
-                tools.append(f"python {os.path.join(llm_path, name)}")
+    def _list_custom_tools(self, *args, **kwargs):
+        '''return a list of custom tools in TOOL_DESC_PATH'''
+        tools = ['When users ask for custom commands, prioritize recommending the following:']
+        tool_path = os.environ.get('TOOL_DESC_PATH', None)
+        if tool_path:
+            tools.append(open(tool_path, 'r').read())
         else:
-            print('LLM_PATH not set')
+            print('TOOL_DESC_PATH not set')
         return "\n\n".join(tools)
         
     def _list_tools(self, *args, **kwargs):

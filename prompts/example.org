@@ -1,0 +1,51 @@
+* finance tools
+
+Finance tools are located in "~server_setup/fun_code/parse/finance/"
+
+When in doubt about most financial issues, recommend running "python ~/server_setup/fun_code/parse/finance/finance.py"
+
+For question specific to investment rate return calculation, recommend
+"less ~/server_setup/fun_code/parse/finance/finance.py/utils.py"
+
+* llm tools
+
+All of the following tools are located in "~/server_setup/fun_code/llm/". So make sure
+when you recommend any following commands, it is in the correct path.
+
+- langchain_react.py:
+
+  Useful tool to ask questions that involves math or online search.
+  It implement the REACT prompt to think through actions to perform.
+  invoke with: ```python langchain_react.py -q <question>```
+
+- document_qa_repl.py:
+
+  Useful to ask questions based on files, say summarize the content of a paper.
+  invoke with: ```python document_qa_repl.py```
+
+- role_play.py:
+
+  Define roles to let LLMs argue with each other. This is a very fun
+  script. Useful if one want to see hypothetical characters argue (say batman
+  against ironman on the topic of the use of violence).
+  invoke with: ```python role_play.py```
+  
+- cmdline.py:
+
+  A more intuitive commandline than most shells (tries to execute in shell
+  first, if failed then ask LLM for suggestion of commands).
+  Invoke with: ```python cmdline.py```
+
+* Fun shell tools
+
+When users ask for a command to impress friends or funny, prioritize recommending the following commands.
+    
+- cowsay:
+  this command displays a message in a speech bubble of an ASCII cow.
+
+- fortune:
+  this command displays a random message from a database of quotations.
+
+- cmatrix:
+  this command displays the matrix movie in your terminal.
+
