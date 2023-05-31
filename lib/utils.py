@@ -75,9 +75,10 @@ def create_retry_decorator(max_tries=3, min_seconds=4, max_seconds=10):
 
 class ChatBot:
     '''open ai vannilla chatbot'''
-    def __init__(self, system=""):
+    def __init__(self, system="", stop=None):
         self.system = system
         self.messages = []
+        self.stop = stop # stop words
         if self.system:
             self.messages.append({"role": "system", "content": system})
     
@@ -89,7 +90,7 @@ class ChatBot:
 
     @create_retry_decorator(max_tries=3)
     def execute(self):
-        completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=self.messages)
+        completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=self.messages, stop=self.stop)
         # Uncomment this to print out token usage each time, e.g.
         # {"completion_tokens": 86, "prompt_tokens": 26, "total_tokens": 112}
         # print(completion.usage)

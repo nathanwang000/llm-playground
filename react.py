@@ -8,9 +8,6 @@ import os
 import click
 from lib.utils import ChatBot, repl
 
-reminder = '''
-Remember to only output one action and stop outputing observation as it will be given to you.
-'''
 prompt = """
 You run in a loop of Thought, Action, Observation.
 At the end of the loop you output an Answer
@@ -22,11 +19,13 @@ Your available actions are:
 
 {tools}
 
+Make sure your output "Action: <action>: ```<query>```" on a single line.
+
 Example session:
 
 Question: What is the capital of France?
 Thought: I should look up France on Wikipedia
-Action: wikipedia: France
+Action: wikipedia: ```France```
 
 You will be called again with this:
 
@@ -37,16 +36,17 @@ You then output:
 Answer: The capital of France is Paris
 """.strip()
 
-action_re = re.compile('^Action: (\w+): (.*)$')
+action_re = re.compile('^Action: (\w+): ```([^`]*)```.*$')
 
 def query(question, max_turns=5):
     i = 0
-    bot = ChatBot(prompt + '\n' + reminder)
+    bot = ChatBot(prompt,
+                  stop=["Observation:", "observation"] )
     next_prompt = question
     while i < max_turns:
         print(f"turn: {i}")
         i += 1
-        result = bot(next_prompt + '\n' + reminder)
+        result = bot(next_prompt)
         print(result)
         actions = [action_re.match(a) for a in result.split('\n') if action_re.match(a)]
         if actions:
@@ -105,8 +105,7 @@ def ddgs_text(q, top_n=3):
 
 def calculate(what):
     '''
-    Runs a calculation and returns the number - uses Python so be sure to use floating point syntax if necessary
-    Be sure that the expression can be evaluated safely without error
+    Runs a calculation and returns the number - uses Python so be sure to use floating point syntax if necessary. The input must be executable python code.
     '''
     from sympy import simplify
     return simplify(what)
@@ -120,7 +119,7 @@ known_actions = { # like load tools for langchain
 # load available tools
 tools = []
 for k, v in known_actions.items():
-    tools.append("\n".join(["{}: \ne.g., {}: <query> \n{}".format(k, k,
+    tools.append("\n".join(["{}: \ne.g., {}: ```<query>``` \n{}".format(k, k,
                                                                   v.__doc__.strip())]))
 prompt = prompt.format(tools="\n\n".join(tools))
 
