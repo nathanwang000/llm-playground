@@ -6,9 +6,11 @@ from langchain.agents import initialize_agent
 from langchain.agents import AgentType
 from langchain.llms import OpenAI
 from lib.utils import repl
-import os
+import os, click
 
-def main():
+@click.command()
+@click.option('-q', 'question', prompt='Question', help='Question to ask')
+def main(question):
     print(f"Tools in {langchain.agents.tools.__file__}: {get_all_tool_names()}")        
     # adapted from https://python.langchain.com/en/latest/getting_started/getting_started.html
     # First, let's load the language model we're going to use to control the agent.
@@ -23,7 +25,7 @@ def main():
 
     # Finally, let's initialize an agent with the tools, the language model, and the type of agent we want to use.
     agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
-    repl(lambda user_input: agent.run(user_input))
+    agent.run(question)
     
 if __name__ == "__main__":
     main()
