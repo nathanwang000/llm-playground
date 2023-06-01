@@ -22,6 +22,36 @@ EXCEPTION_PROMPT = colored('Exception:', 'red')
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
 
+def _process_wrapper(output_queue, func, args, kwargs):
+    # Execute the function and put the output in the queue
+    output = func(*args, **kwargs)
+    output_queue.put(output)
+
+def run_multiprocess_with_interrupt(func, *args, **kwargs):
+    '''
+    run func in a separate process, handle keyboard interrupt to only kill
+    the subprocess
+    '''
+    import multiprocessing
+
+    # Create a multiprocessing Queue to capture the output
+    output_queue = multiprocessing.Queue()
+
+    p = multiprocessing.Process(target=_process_wrapper,
+                                args=(output_queue, func, args, kwargs))
+    
+    try:
+        p.start()
+        p.join()
+    except KeyboardInterrupt:
+        p.terminate()
+        p.join()
+        raise KeyboardInterrupt
+
+    # Retrieve the output from the queue
+    output = output_queue.get()
+    return output
+    
 def run_subprocess_with_interrupt(command, check=False, *args, **kwargs):
     '''
     handle run subprocess when keyboard interrupt is issued w/o
@@ -38,8 +68,7 @@ def run_subprocess_with_interrupt(command, check=False, *args, **kwargs):
         raise e
     if check and p.returncode != 0:
         raise subprocess.CalledProcessError(p.returncode, command)
-
-    
+  
 def unquoted_shell_escape(string):
     '''escape shell string without quotes'''
     return re.sub(r'([ \\\'"!$`])', r'\\\1', string)
@@ -102,7 +131,7 @@ def repl(f,
             continue
         except Exception as e:
             # Handle and print any exceptions that occur during evaluation
-            print(f"Error: {e}")
+            print(EXCEPTION_PROMPT, e)
         
         ans = f(user_input)
         print(colored(output_prompt, "green"))

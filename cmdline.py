@@ -10,6 +10,7 @@ import openai
 import click
 import os, glob, re
 import subprocess
+from termcolor import colored
 from lib.utils import ChatBot, repl, strip_multiline
 from lib.utils import ShellCompleter, EXCEPTION_PROMPT
 
@@ -140,12 +141,18 @@ AI: Do you mean the "reset" command that resets the chatbot session?
         except KeyboardInterrupt:
             print(EXCEPTION_PROMPT, 'KeyboardInterrupt') # no need to ask llm
         except Exception as e:
-            print(EXCEPTION_PROMPT, e)
+            print(EXCEPTION_PROMPT, e, colored('send to llm', 'yellow'))
             # finally try to ask the chatbot
-            # TODO: wrap chatbot to handle c-c correctly
             postfix_message = 'remember to add "command: <executable command>" at the end of your response in a new line'
             prompt = prompt + '\n' + postfix_message
-            return f"{self.chatbot(prompt)}"
+            from lib.utils import run_multiprocess_with_interrupt
+            # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
+            try: 
+                result = run_multiprocess_with_interrupt(self.chatbot, prompt)
+            except KeyboardInterrupt:
+                print(EXCEPTION_PROMPT, 'Keyboard interrupt when sending to llm:')
+                result = None
+            return result
 
 
 @click.command()
