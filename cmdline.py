@@ -11,7 +11,7 @@ import click
 import os, glob, re
 import subprocess
 from lib.utils import ChatBot, repl, strip_multiline
-from lib.utils import ShellCompleter
+from lib.utils import ShellCompleter, EXCEPTION_PROMPT
 
 class Cmdline:
     system_prompt = '''
@@ -129,13 +129,20 @@ AI: Do you mean the "reset" command that resets the chatbot session?
                 return directory
             else:
                 # subprocess start a new process, thus forgetting aliases and history
-                # see https://stackoverflow.com/questions/12060863/python-subprocess-call-a-bash-alias
-                # the hack of using bash -i -c "command" is not working
-                # better to just override system command by prepending to $PATH
+                # solution: override system command by prepending to $PATH
                 # and use shared history file (search chatgpt)
-                subprocess.run(prompt, check=True, shell=True)
+
+                # handle control-c correctly for child process (o/w kill parent python process)
+                # if don't care, then uncomment the following line, and comment out others
+                # subprocess.run(prompt, check=True, shell=True)                
+                from lib.utils import run_subprocess_with_interrupt
+                run_subprocess_with_interrupt(prompt, check=True, shell=True)
+        except KeyboardInterrupt:
+            print(EXCEPTION_PROMPT, 'KeyboardInterrupt') # no need to ask llm
         except Exception as e:
+            print(EXCEPTION_PROMPT, e)
             # finally try to ask the chatbot
+            # TODO: wrap chatbot to handle c-c correctly
             postfix_message = 'remember to add "command: <executable command>" at the end of your response in a new line'
             prompt = prompt + '\n' + postfix_message
             return f"{self.chatbot(prompt)}"

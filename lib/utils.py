@@ -8,6 +8,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter, Completer, Completion
 import openai, os, re, glob, shlex
 import logging, tempfile
+import signal, subprocess
 from collections import deque, OrderedDict
 from tenacity import (
     before_sleep_log,
@@ -17,61 +18,28 @@ from tenacity import (
     wait_exponential,
 )
 
+EXCEPTION_PROMPT = colored('Exception:', 'red')
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
 
-def org_parser(fn):
+def run_subprocess_with_interrupt(command, check=False, *args, **kwargs):
     '''
-    return a dictionary like data, future could explore json
-    understand the following lines
-    
-    comment: ignore content followed by #
-    key word pairs: marked by ':'
-    structures: '*' and '**' and '***' mark strucutres
+    handle run subprocess when keyboard interrupt is issued w/o
+    killing the parent process
+    check: whether to raise exception if return code is not 0
+    all other args are passed to subprocess.Popen
+    '''
+    p = subprocess.Popen(command, *args, **kwargs)
+    try:
+        p.wait()
+    except KeyboardInterrupt as e:
+        p.send_signal(signal.SIGINT)
+        p.wait()
+        raise e
+    if check and p.returncode != 0:
+        raise subprocess.CalledProcessError(p.returncode, command)
 
-    parses into a dictionary like data structure
-    '''
-    goals = parse_lines(deque(open(fn, 'r').readlines()), 0)
-    return goals
-
-def parse_lines(lines, level):
-    '''
-    given lines of org mode format
-    parse it into python ordered dictionary
-    '''
-    def clean(l):
-        r'''
-        strip comment and other special marks
     
-        >>> clean("\n")
-        ''
-        >>> clean(" abc # dsfadfadfease")
-        'abc'
-        '''
-        if '#' in l:
-            l = l[:l.index('#')]
-        return l.strip()
-    
-    d = OrderedDict()
-    while lines:
-        l = clean(lines.popleft())
-        m = re.match(r"^(\*+)\W(.*)", l)
-        if m: # to another level
-            stars, name = m.groups()
-            if len(stars) > level:
-                d[name] = parse_lines(lines, len(stars))
-            else:
-                lines.appendleft(l)
-                return d
-        elif ":" in l: # key value pairs
-            k, v = [x.strip() for x in l.split(':')]
-            d[k] = v
-        elif l == "":
-            continue
-        else:
-            d[l] = None
-    return d
-
 def unquoted_shell_escape(string):
     '''escape shell string without quotes'''
     return re.sub(r'([ \\\'"!$`])', r'\\\1', string)
@@ -130,7 +98,7 @@ def repl(f,
             break
         except KeyboardInterrupt:
             # Handle Ctrl+C to cancel the input prompt
-            print('KeyboardInterrupt')
+            print(EXCEPTION_PROMPT, 'KeyboardInterrupt')
             continue
         except Exception as e:
             # Handle and print any exceptions that occur during evaluation
