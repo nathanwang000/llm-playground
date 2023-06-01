@@ -1,11 +1,18 @@
 * finance tools
 
-Finance tools are located in "~server_setup/fun_code/parse/finance/"
+Finance tools are located in "~/server_setup/fun_code/parse/finance/".  Make
+sure to prefix the command with the correct directory when recommending to the
+user.
 
-When in doubt about most financial issues, recommend running "python ~/server_setup/fun_code/parse/finance/finance.py"
+- finance.py
+  Useful utility to check my financial status. Not intended to use as a
+  calculator.  If you need to do finance calculation, please use
+  langchain_react.py instead in the llm tools.
+  Invoke with: ```python finance.py```
 
-For question specific to investment rate return calculation, recommend
-"less ~/server_setup/fun_code/parse/finance/finance.py/utils.py"
+- utils.py
+  utilties to calculate investment return questions, currently not interactive.
+  Invoke with: ```less ~/server_setup/fun_code/parse/finance/finance.py/utils.py```
 
 * llm tools
 

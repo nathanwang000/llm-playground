@@ -12,10 +12,6 @@ cmdline.py: a more intuitive commandline (tries to execute in shell first, other
 react.py: REACT prompt w/o depending on langchain, adapted from simon's blog on react
 role_play.py: define some roles to argue against each other, inspired by guidance's example
 document_qa_repl.py: useful to ask questions based on files, using langchain
-utils.py: util shared by multiple files
----- the follwing files are not very useful other than for me to learn the tool
-freeform_qa_repl.py: freeform q and a, not very useful given cmdline.py
-guidance_example.py: experiment with the guidance package
 langchain_react.py: langchain version of using tools
 #+end_example
 
@@ -28,6 +24,9 @@ I personally like cmdline best
 #+BEGIN_SRC bash
 python cmdline.py
 #+END_SRC
+
+A more detailed description is in prompts/example.org, which are used as prompt to
+teach cmdline.py to use those utilities.
 
 * interestingly, llm got more answers correct if asked to output answer at the end than front
 
