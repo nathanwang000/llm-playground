@@ -120,13 +120,18 @@ def repl(f,
             user_input = session.prompt(message=input_prompt,
                                         auto_suggest=AutoSuggestFromHistory(),
                                         completer=completer,
-                                        complete_while_typing=False)
+                                        complete_while_typing=False,
+                                        # for control z
+                                        enable_suspend=True)
             if user_input.strip() == "":
                 continue
-
         except EOFError:
             # Handle Ctrl+D (End of File) to exit the REPL
             break
+        except KeyboardInterrupt:
+            # Handle Ctrl+C to cancel the input prompt
+            print('KeyboardInterrupt')
+            continue
         except Exception as e:
             # Handle and print any exceptions that occur during evaluation
             print(f"Error: {e}")
