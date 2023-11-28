@@ -22,6 +22,15 @@ EXCEPTION_PROMPT = colored('Exception:', 'red')
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
 
+# Function to encode the image
+def encode_image_path(image_path):
+    if image_path.startswith('http'):
+        return image_path
+    import base64
+    with open(image_path, "rb") as image_file:
+        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+    return f"data:image/jpeg;base64,{base64_image}"        
+
 def _process_wrapper(output_queue, func, args, kwargs):
     # Execute the function and put the output in the queue
     output = func(*args, **kwargs)
@@ -82,11 +91,13 @@ def create_retry_decorator(max_tries=3, min_seconds=4, max_seconds=10):
         stop=stop_after_attempt(max_tries),
         wait=wait_exponential(multiplier=1, min=min_seconds, max=max_seconds),
         retry=(
-            retry_if_exception_type(openai.error.Timeout)
-            | retry_if_exception_type(openai.error.APIError)
-            | retry_if_exception_type(openai.error.APIConnectionError)
-            | retry_if_exception_type(openai.error.RateLimitError)
-            | retry_if_exception_type(openai.error.ServiceUnavailableError)
+            # retry every exception
+            retry_if_exception_type(Exception)
+            # retry_if_exception_type(openai.error.Timeout)
+            # | retry_if_exception_type(openai.error.APIError)
+            # | retry_if_exception_type(openai.error.APIConnectionError)
+            # | retry_if_exception_type(openai.error.RateLimitError)
+            # | retry_if_exception_type(openai.error.ServiceUnavailableError)
         ),
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )
@@ -192,7 +203,7 @@ class ShellCompleter(Completer):
                     cfname = cfname + "/"
                 yield Completion(cfname, start_position=-len(fname))
             
-class ChatBot:
+class ChatBot: # this is using the old API
     '''open ai vannilla chatbot'''
     def __init__(self, system="", stop=None):
         self.system = system
@@ -228,6 +239,66 @@ class ChatBot:
     @create_retry_decorator(max_tries=3)
     def execute(self):
         completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=self.messages, stop=self.stop)
+        # Uncomment this to print out token usage each time, e.g.
+        # {"completion_tokens": 86, "prompt_tokens": 26, "total_tokens": 112}
+        # print(completion.usage)
+        return completion.choices[0].message.content
+
+class ChatVisionBot: # this is using the new API
+    '''open ai vannilla chatbot'''
+    def __init__(self, system="", max_tokens=300):
+        self.system = system
+        self.max_tokens = max_tokens
+        self.client = openai.OpenAI()
+        self.messages = []
+        if self.system:
+            self.messages.append({"role": "system", "content": system})
+    
+    def __call__(self, message, images=None):
+        if images is None:
+            images = []
+
+        self.messages.append({
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": message,
+                },
+                *[{
+                    "type": "image_url",
+                    "image_url": encode_image_path(image_url)                    
+                } for image_url in images]
+            ],
+        })
+            
+        result = self.execute()
+        self.messages.append({"role": "assistant", "content": result})
+        return result
+
+    def save_chat(self, filename=""):
+        '''save chat messages to json file, need to supply filename'''
+        import json
+        if filename != '':
+            with open(filename, "w") as f:
+                json.dump(self.messages, f)
+                print(f'chat messages saved to {filename}')
+        else:
+            with tempfile.NamedTemporaryFile(mode='w+',
+                                             delete=False) as f:
+                json.dump(self.messages, f)
+                print(f'Using tmpfile: {f.name}, as no filename is supplied')
+
+    def load_chat(self, filename):
+        '''load chat messages from json file'''
+        import json
+        self.message = json.load(open(filename, "r"))
+            
+    # @create_retry_decorator(max_tries=3)
+    def execute(self):
+        completion = self.client.chat.completions.create(model="gpt-4-vision-preview",
+                                                         messages=self.messages,
+                                                         max_tokens=self.max_tokens)
         # Uncomment this to print out token usage each time, e.g.
         # {"completion_tokens": 86, "prompt_tokens": 26, "total_tokens": 112}
         # print(completion.usage)
