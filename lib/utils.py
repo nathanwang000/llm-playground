@@ -1,4 +1,4 @@
-from langchain.document_loaders import TextLoader, PyPDFLoader
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from pprint import pformat
 from termcolor import colored
 from prompt_toolkit import PromptSession
