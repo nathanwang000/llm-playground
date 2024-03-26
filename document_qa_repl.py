@@ -5,10 +5,13 @@ from langchain.chains.question_answering import load_qa_chain
 from langchain.chains.qa_with_sources import load_qa_with_sources_chain
 from langchain.llms.openai import OpenAI
 from lib.utils import load_doc, repl, get_input_prompt_session
+from lib.utils import ChatBot, repl, strip_multiline
+from langchain.llms import OpenAIChat
 import glob
 
 def main():
-    llm = OpenAI(temperature=0, model_name="text-davinci-003")
+    llm = OpenAIChat(model_name="gpt-3.5-turbo")
+    # llm = OpenAI(temperature=0, model_name="text-davinci-003")
     print('Provide documents to index (only support txt an pdf files currently)')
     session = get_input_prompt_session('ansired')
     docnames = []
@@ -25,7 +28,7 @@ def main():
 
     repl(lambda user_input:
          index.query_with_sources(user_input, llm))
-
+    # bot = ChatBot('You help answer questions about documents')
 
 if __name__ == "__main__":
     main()

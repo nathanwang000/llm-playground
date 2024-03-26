@@ -5,6 +5,7 @@ from langchain.agents import load_tools, get_all_tool_names
 from langchain.agents import initialize_agent
 from langchain.agents import AgentType
 from langchain.llms import OpenAI
+from langchain.llms import OpenAIChat
 from lib.utils import repl
 import os, click
 
@@ -14,7 +15,8 @@ def main(question):
     print(f"Tools in {langchain.agents.tools.__file__}: {get_all_tool_names()}")        
     # adapted from https://python.langchain.com/en/latest/getting_started/getting_started.html
     # First, let's load the language model we're going to use to control the agent.
-    llm = OpenAI(temperature=0, model_name="text-davinci-003")
+    llm = OpenAIChat(model_name="gpt-3.5-turbo")
+    # llm = OpenAI(temperature=0, model_name="text-davinci-003")
     # os.environ["OPENAI_API_BASE"] = "http://localhost:8000/v1"
     # llm = OpenAI(temperature=0, model_name="vicuna-7b-v1.1")
 

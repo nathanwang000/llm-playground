@@ -246,8 +246,9 @@ class ChatBot: # this is using the old API
 
 class ChatVisionBot: # this is using the new API
     '''open ai vannilla chatbot'''
-    def __init__(self, system="", max_tokens=300):
+    def __init__(self, system="", max_tokens=300, stop='<|endoftext|>'):
         self.system = system
+        self.stop = stop
         self.max_tokens = max_tokens
         self.client = openai.OpenAI()
         self.messages = []
@@ -298,7 +299,8 @@ class ChatVisionBot: # this is using the new API
     def execute(self):
         completion = self.client.chat.completions.create(model="gpt-4-vision-preview",
                                                          messages=self.messages,
-                                                         max_tokens=self.max_tokens)
+                                                         max_tokens=self.max_tokens,
+                                                         stop=self.stop)
         # Uncomment this to print out token usage each time, e.g.
         # {"completion_tokens": 86, "prompt_tokens": 26, "total_tokens": 112}
         # print(completion.usage)
