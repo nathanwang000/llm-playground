@@ -36,7 +36,9 @@ b) append the command after the answer
 
 The second case worked much better. This could be due to the fact that model have time to peruse its thought when final answer comes at last (it sees the process), given that transformers are conditioned out previous output. I could more rigoriously investigate this phenomena by asking math questions.
 
-This might be also related to recency bias in llm.
+This might be also related to recency bias in llm. 
+
+Update: it must be linked with the inability to reason with llm (CoT helps a bit). A recent paper suggest this may have to do with teacher forcing. Since the model is always trained with the assumption that the previous tokens are correct (due to teacher forcing), in inference time, once it output an incorrect response, it has no chance of correcting itself. Perhaps we can cut out this shortcut with randomly masking the non-prompt part of the model input.
 
 * with the react pattern, gpt hallucinate
 
