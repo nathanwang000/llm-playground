@@ -246,7 +246,8 @@ class ChatBot: # this is using the old API
 
 class ChatVisionBot: # this is using the new API
     '''open ai vannilla chatbot'''
-    def __init__(self, system="", max_tokens=300, stop='<|endoftext|>'):
+    def __init__(self, system="", max_tokens=1000, stop='<|endoftext|>', model="gpt-4-1106-vision-preview"):
+        self.model = model
         self.system = system
         self.stop = stop
         self.max_tokens = max_tokens
@@ -297,7 +298,7 @@ class ChatVisionBot: # this is using the new API
             
     # @create_retry_decorator(max_tries=3)
     def execute(self):
-        completion = self.client.chat.completions.create(model="gpt-4-vision-preview",
+        completion = self.client.chat.completions.create(model=self.model,
                                                          messages=self.messages,
                                                          max_tokens=self.max_tokens,
                                                          stop=self.stop)
