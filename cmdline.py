@@ -11,7 +11,7 @@ import click
 import os, glob, re
 import subprocess
 from termcolor import colored
-from lib.utils import ChatBot, repl, strip_multiline
+from lib.utils import ChatVisionBot, repl, strip_multiline
 from lib.utils import ShellCompleter, EXCEPTION_PROMPT
 
 class Cmdline:
@@ -56,7 +56,7 @@ AI: Do you mean the "reset" command that resets the chatbot session?
             'p': self._get_prompt,
             'e': self._run_last_command_from_llm,
         }
-        self.chatbot = ChatBot(self._get_prompt())
+        self.chatbot = ChatVisionBot(self._get_prompt())
         self.known_actions['s'] = self.chatbot.save_chat
         
     def _run_last_command_from_llm(self, *args, **kwargs):
@@ -87,7 +87,7 @@ AI: Do you mean the "reset" command that resets the chatbot session?
     def _list_custom_tools(self, *args, **kwargs):
         '''return a list of custom tools in TOOL_DESC_PATH'''
         tools = ['When users ask for custom commands, prioritize recommending the following:']
-        tool_path = os.environ.get('TOOL_DESC_PATH', None)
+        tool_path = os.environ.get('TOOL_DESC_PATH', 'prompts/example.org')
         if tool_path:
             tools.append(open(tool_path, 'r').read())
         else:
@@ -148,7 +148,8 @@ AI: Do you mean the "reset" command that resets the chatbot session?
             from lib.utils import run_multiprocess_with_interrupt
             # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
             try: 
-                result = run_multiprocess_with_interrupt(self.chatbot, prompt)
+                # result = run_multiprocess_with_interrupt(self.chatbot, prompt)
+                result = self.chatbot(prompt)
             except KeyboardInterrupt:
                 print(EXCEPTION_PROMPT, 'Keyboard interrupt when sending to llm:')
                 result = None

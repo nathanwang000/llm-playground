@@ -1,3 +1,4 @@
+import time
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from pprint import pformat
 from termcolor import colored
@@ -146,9 +147,27 @@ def repl(f,
         
         ans = f(user_input)
         print(colored(output_prompt, "green"))
-        custom_print(ans)
+        if type(ans) is openai.Stream:
+            collected_chunks = []
+            collected_messages = []
+            start_time = time.time()
+            for chunk in ans:
+                chunk_time = time.time() - start_time
+                collected_chunks.append(chunk)  # save the event response
+                chunk_message = chunk.choices[0].delta.content  # extract the message
+                if chunk_message != None:
+                    collected_messages.append(chunk_message)  # save the message
+                    print(chunk_message, end="", flush=True)
+                # print(f"Message received {chunk_time:.2f} seconds after request: {chunk_message}")  # print the delay and text
+            print() # newline
+            # from https://cookbook.openai.com/examples/how_to_stream_completions
+        else:
+            custom_print(ans)
 
 def custom_print(d):
+    '''
+    custom print for dictionary, to print nested dictionary
+    '''
     if type(d) is not dict:
         print(d)
         return
@@ -246,15 +265,17 @@ class ChatBot: # this is using the old API
 
 class ChatVisionBot: # this is using the new API
     '''open ai vannilla chatbot'''
-    def __init__(self, system="", max_tokens=1000, stop='<|endoftext|>', model="gpt-4-1106-vision-preview"):
+    def __init__(self, system="", max_tokens=1000, stop='<|endoftext|>', model="gpt-4-1106-vision-preview", stream=True):
         self.model = model
         self.system = system
         self.stop = stop
         self.max_tokens = max_tokens
         self.client = openai.OpenAI()
         self.messages = []
+        self.stream = stream
         if self.system:
-            self.messages.append({"role": "system", "content": system})
+            self.messages.append({"role": "system",
+                                  "content": system})
     
     def __call__(self, message, images=None):
         if images is None:
@@ -298,12 +319,17 @@ class ChatVisionBot: # this is using the new API
             
     # @create_retry_decorator(max_tries=3)
     def execute(self):
-        completion = self.client.chat.completions.create(model=self.model,
-                                                         messages=self.messages,
-                                                         max_tokens=self.max_tokens,
-                                                         stop=self.stop)
-        # Uncomment this to print out token usage each time, e.g.
-        # {"completion_tokens": 86, "prompt_tokens": 26, "total_tokens": 112}
-        # print(completion.usage)
-        return completion.choices[0].message.content
+        completion = self.client.chat.completions.create(
+            model=self.model,
+            messages=self.messages,
+            max_tokens=self.max_tokens,
+            stream=self.stream,
+            stop=self.stop)
+        if self.stream:
+            return completion
+        else:
+            # Uncomment this to print out token usage each time, e.g.
+            # {"completion_tokens": 86, "prompt_tokens": 26, "total_tokens": 112}
+            print(completion.usage)
+            return completion.choices[0].message.content
     
