@@ -213,7 +213,9 @@ def strip_multiline(text):
     return "\n".join(list(map(lambda x: x.strip(), text.strip().split('\n'))))
 
 class ShellCompleter(Completer):
-    def __init__(self, commands):
+    def __init__(self, commands=None):
+        if commands is None:
+            commands = []
         self.command_completer = WordCompleter(commands, ignore_case=True)
 
     def get_completions(self, document, complete_event):
