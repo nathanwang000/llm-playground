@@ -115,10 +115,62 @@ def get_input_prompt_session(color='ansired'):
         history=history
     )
 
+def print_openai_stream(ans):
+    # from https://cookbook.openai.com/examples/how_to_stream_completions
+    assert type(ans) is openai.Stream
+    collected_chunks = []
+    collected_messages = []
+    start_time = time.time()
+    for chunk in ans:
+        chunk_time = time.time() - start_time
+        collected_chunks.append(chunk)  # save the event response
+        chunk_message = chunk.choices[0].delta.content  # extract the message
+        if chunk_message != None:
+            collected_messages.append(chunk_message)  # save the message
+            print(chunk_message, end="", flush=True)
+        # print(f"Message received {chunk_time:.2f} seconds after request: {chunk_message}")  # print the delay and text
+    print() # newline
+
+def print_langchain_stream(ans):
+    # from https://python.langchain.com/docs/use_cases/question_answering/streaming/
+    output = {} # for dict chunk
+    curr_key = None
+    for chunk in ans:
+        if type(chunk) is dict:
+            for key in chunk:
+                if key not in output:
+                    output[key] = chunk[key]
+                else:
+                    output[key] += chunk[key]
+                if key != curr_key:
+                    print(f"\n\n{key}: {chunk[key]}", end="", flush=True)
+                else:
+                    print(chunk[key], end="", flush=True)
+                curr_key = key
+        else:
+            print(chunk, end="", flush=True)
+    print()
+        
+def custom_print(d):
+    '''
+    custom print for dictionary, to print nested dictionary
+    '''
+    if type(d) is not dict:
+        print(d)
+        return
+    print('{')
+    indent = ' ' * 2
+    for k, v in d.items():
+        v = str(v).split('\n')
+        v_repr = '\n'.join([indent*2 + line for line in v])
+        print(f'{indent}{k}: \n{v_repr}')
+    print('}')
+
 def repl(f,
          input_prompt=">> ",
          output_prompt=":: ",
-         completer=None):
+         completer=None,
+         printf=custom_print):
     '''
     f is the function that will be called on each input
     '''
@@ -147,37 +199,7 @@ def repl(f,
         
         ans = f(user_input)
         print(colored(output_prompt, "green"))
-        if type(ans) is openai.Stream:
-            collected_chunks = []
-            collected_messages = []
-            start_time = time.time()
-            for chunk in ans:
-                chunk_time = time.time() - start_time
-                collected_chunks.append(chunk)  # save the event response
-                chunk_message = chunk.choices[0].delta.content  # extract the message
-                if chunk_message != None:
-                    collected_messages.append(chunk_message)  # save the message
-                    print(chunk_message, end="", flush=True)
-                # print(f"Message received {chunk_time:.2f} seconds after request: {chunk_message}")  # print the delay and text
-            print() # newline
-            # from https://cookbook.openai.com/examples/how_to_stream_completions
-        else:
-            custom_print(ans)
-
-def custom_print(d):
-    '''
-    custom print for dictionary, to print nested dictionary
-    '''
-    if type(d) is not dict:
-        print(d)
-        return
-    print('{')
-    indent = ' ' * 2
-    for k, v in d.items():
-        v = str(v).split('\n')
-        v_repr = '\n'.join([indent*2 + line for line in v])
-        print(f'{indent}{k}: \n{v_repr}')
-    print('}')
+        printf(ans)
     
 def load_doc(docname):
     if docname.endswith('.txt'):
