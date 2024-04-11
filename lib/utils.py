@@ -11,7 +11,7 @@ from prompt_toolkit.completion import WordCompleter, Completer, Completion
 import openai, os, re, glob, shlex
 import logging, tempfile
 import signal, subprocess
-from collections import deque, OrderedDict
+from collections import deque, OrderedDict, namedtuple
 from tenacity import (
     before_sleep_log,
     retry,
@@ -19,10 +19,71 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
+from langchain_core.messages import AIMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
 
 EXCEPTION_PROMPT = colored('Exception:', 'red')
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
+
+# Function to parse time range using llm
+DateRange = namedtuple('DateRange', ['start', 'end'])
+DateRange.__repr__ = lambda x: f'{x.start.strftime("%m/%d/%Y")} - {x.end.strftime("%m/%d/%Y")}'
+
+def parse_time_range_from_AI_message(message: AIMessage)->DateRange:
+
+    format_date = lambda x: datetime.datetime.strptime(x, '%m/%d/%Y')
+    start_dates = [
+        format_date(d) for d in 
+                   re.findall(r'start date:\s+(\d{1,2}/\d{1,2}/\d{4})', 
+                             message.content)]
+    end_dates = [
+        format_date(d) for d in re.findall(r'end date:\s+(\d{1,2}/\d{1,2}/\d{4})', 
+                           message.content)]
+
+    today = datetime.datetime.today()
+    if not end_dates:
+        print(EXCEPTION_PROMPT, f'no end date in AI message {message.content}: set end date as today')
+        end_dates = [today]
+    if not start_dates or start_dates[0] > end_dates[0]:
+        print(EXCEPTION_PROMPT, 'no start date or start date later than end date: set start as end-7')
+        start_dates = [end_dates[0] - datetime.timedelta(days=today.weekday() + 7)]
+    return DateRange(
+        start_dates[0],
+        end_dates[0]
+    )
+
+def parse_time_range_from_query(query:str)->DateRange:
+    p = ChatPromptTemplate.from_messages([
+        ('system', 
+         '''
+         Given query, parse out the start and end time of the query.
+         If not enough information given, assume time range is the last 7 days
+
+         today: {today}
+         query: {query}
+         start date: <output start date from query>
+         end date: <output end date from query>
+
+         ==== Example ===
+
+         today: Thursday, April 9, 2024 10:46 AM
+         query: what did I eat last week?
+         start date: 4/2/2024
+         end date: 4/9/2024
+         '''),
+    ])
+    today = datetime.datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
+    llm = ChatOpenAI(model_name="gpt-4-1106-vision-preview")
+    chain = (p | llm | parse_time_range_from_AI_message)
+    
+    result = chain.invoke({
+        'query': query, 
+        'today': today
+    })
+    print(colored('parsed time range:', 'yellow'), result)
+    return result
 
 # Function to encode the image
 def encode_image_path(image_path):
