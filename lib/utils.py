@@ -1,5 +1,6 @@
 import time
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
+from collections.abc import Mapping
 from pprint import pformat
 from termcolor import colored
 from prompt_toolkit import PromptSession
@@ -136,14 +137,14 @@ def print_langchain_stream(ans):
     output = {} # for dict chunk
     curr_key = None
     for chunk in ans:
-        if type(chunk) is dict:
+        if isinstance(chunk, Mapping):
             for key in chunk:
                 if key not in output:
                     output[key] = chunk[key]
                 else:
                     output[key] += chunk[key]
                 if key != curr_key:
-                    print(f"\n\n{key}: {chunk[key]}", end="", flush=True)
+                    print(f"\n\n{colored(key, 'green')}: {chunk[key]}", end="", flush=True)
                 else:
                     print(chunk[key], end="", flush=True)
                 curr_key = key
