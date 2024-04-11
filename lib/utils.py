@@ -118,7 +118,10 @@ def get_input_prompt_session(color='ansired'):
 
 def print_openai_stream(ans):
     # from https://cookbook.openai.com/examples/how_to_stream_completions
-    assert type(ans) is openai.Stream
+    if type(ans) is not openai.Stream:
+        custom_print(ans)
+        return
+
     collected_chunks = []
     collected_messages = []
     start_time = time.time()
