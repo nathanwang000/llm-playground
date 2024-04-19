@@ -9,10 +9,11 @@ from langchain.llms import OpenAIChat
 from lib.utils import repl
 import os, click
 
+
 @click.command()
-@click.option('-q', 'question', prompt='Question', help='Question to ask')
+@click.option("-q", "question", prompt="Question", help="Question to ask")
 def main(question):
-    print(f"Tools in {langchain.agents.tools.__file__}: {get_all_tool_names()}")        
+    print(f"Tools in {langchain.agents.tools.__file__}: {get_all_tool_names()}")
     # adapted from https://python.langchain.com/en/latest/getting_started/getting_started.html
     # First, let's load the language model we're going to use to control the agent.
     llm = OpenAIChat(model_name="gpt-3.5-turbo")
@@ -23,14 +24,16 @@ def main(question):
     # Next, let's load some tools to use.
     tools_names = ["ddg-search", "llm-math"]
     tools = load_tools(tools_names, llm=llm)
-    print(f"ask the agent anything, this is using openai's {llm.model_name} model, using {tools_names} tools")
+    print(
+        f"ask the agent anything, this is using openai's {llm.model_name} model, using {tools_names} tools"
+    )
 
     # Finally, let's initialize an agent with the tools, the language model, and the type of agent we want to use.
-    agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
+    agent = initialize_agent(
+        tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True
+    )
     agent.run(question)
-    
+
+
 if __name__ == "__main__":
     main()
-
-
-

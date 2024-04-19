@@ -9,26 +9,31 @@ from lib.utils import ChatBot, repl, strip_multiline
 from langchain.llms import OpenAIChat
 import glob
 
+
 def main():
     llm = OpenAIChat(model_name="gpt-3.5-turbo")
     # llm = OpenAI(temperature=0, model_name="text-davinci-003")
-    print('Provide documents to index (only support txt an pdf files currently)')
-    session = get_input_prompt_session('ansired')
+    print("Provide documents to index (only support txt an pdf files currently)")
+    session = get_input_prompt_session("ansired")
     docnames = []
     while True:
         dnames = session.prompt('Document (e.g., "docs/*", enter "exit" when done): ')
-        if dnames == 'exit':
+        if dnames == "exit":
             break
-        docnames.extend([d for d in glob.glob(dnames) if d.split('.')[-1] in ['txt', 'pdf']])
+        docnames.extend(
+            [d for d in glob.glob(dnames) if d.split(".")[-1] in ["txt", "pdf"]]
+        )
 
-    loaders = [load_doc(docname) for docname in docnames]
+    loaders = [load_doc(docname, in_memory_load=False) for docname in docnames]
     index = VectorstoreIndexCreator().from_loaders(loaders)
-    docnames_str = '\n  '.join([f'{i}: {docname}' for i, docname in enumerate(docnames)])
+    docnames_str = "\n  ".join(
+        [f"{i}: {docname}" for i, docname in enumerate(docnames)]
+    )
     print(f"ask me anything about \n  {docnames_str}")
 
-    repl(lambda user_input:
-         index.query_with_sources(user_input, llm))
+    repl(lambda user_input: index.query_with_sources(user_input, llm))
     # bot = ChatBot('You help answer questions about documents')
+
 
 if __name__ == "__main__":
     main()

@@ -12,4 +12,3 @@ def square(x):
 @stub.local_entrypoint()
 def main():
     print("the square is", square.call(42))
-
