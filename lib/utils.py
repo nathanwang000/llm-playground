@@ -7,17 +7,21 @@ from typing import List
 from langchain_core.documents import Document
 from langchain_google_community import GoogleDriveLoader
 from collections.abc import Mapping
-from pprint import pformat
 from termcolor import colored
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter, Completer, Completion
-import openai, os, re, glob, shlex
-import logging, tempfile
-import signal, subprocess
-from collections import deque, OrderedDict, namedtuple
+import openai
+import os
+import re
+import glob
+import logging
+import tempfile
+import signal
+import subprocess
+from collections import namedtuple
 from tenacity import (
     before_sleep_log,
     retry,
@@ -33,16 +37,8 @@ from langchain_openai import ChatOpenAI
 from langchain.embeddings import CacheBackedEmbeddings
 from langchain.storage import LocalFileStore
 from langchain_community.vectorstores import Chroma
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import (
-    RunnablePassthrough,
-    RunnableParallel,
-    RunnableLambda,
-)
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_community import GoogleDriveLoader
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 
 EXCEPTION_PROMPT = colored("Exception:", "red")
@@ -647,7 +643,6 @@ When users ask for chat bot related commands, suggest the following:
 
     def __call__(self, prompt):
         prompt = prompt.strip()
-        prev_directory = os.getcwd()
 
         try:
             # first try known actions

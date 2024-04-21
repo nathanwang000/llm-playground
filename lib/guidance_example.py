@@ -1,5 +1,4 @@
 import guidance
-import transformers
 
 path = "vicuna-7b"
 # mpt = guidance.llms.transformers.MPTChat('mosaicml/mpt-7b-chat', device=1)

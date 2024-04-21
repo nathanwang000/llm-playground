@@ -1,5 +1,3 @@
-import readline
-from langchain.indexes import VectorstoreIndexCreator
 from langchain.llms.openai import OpenAI
 from utils import repl
 
