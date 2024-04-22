@@ -1,27 +1,38 @@
-import time
-import tqdm
-import functools
+# import time
+# import sys
 import datetime
-import pprint
-from typing import List
-from langchain_core.documents import Document
-from langchain_google_community import GoogleDriveLoader
-from collections.abc import Mapping
-from termcolor import colored
-from prompt_toolkit import PromptSession
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.styles import Style
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.completion import WordCompleter, Completer, Completion
-import openai
-import os
-import re
+import functools
 import glob
 import logging
-import tempfile
+import os
+import pprint
+import re
 import signal
 import subprocess
+import tempfile
 from collections import namedtuple
+from collections.abc import Mapping
+from typing import List
+
+import openai
+import tqdm
+
+# for caching see https://shorturl.at/tHTV4
+from langchain.embeddings import CacheBackedEmbeddings
+from langchain.storage import LocalFileStore
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_community.vectorstores import Chroma
+from langchain_core.documents import Document
+from langchain_core.messages import AIMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_google_community import GoogleDriveLoader
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.completion import Completer, Completion, WordCompleter
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.styles import Style
 from tenacity import (
     before_sleep_log,
     retry,
@@ -29,17 +40,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-from langchain_core.messages import AIMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
-
-# for caching see https://shorturl.at/tHTV4
-from langchain.embeddings import CacheBackedEmbeddings
-from langchain.storage import LocalFileStore
-from langchain_community.vectorstores import Chroma
-from langchain_openai import OpenAIEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import TextLoader, PyPDFLoader
+from termcolor import colored
 
 EXCEPTION_PROMPT = colored("Exception:", "red")
 openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -175,6 +176,21 @@ def run_subprocess_with_interrupt(command, check=False, *args, **kwargs):
         raise subprocess.CalledProcessError(p.returncode, command)
 
 
+def run_with_interrupt(f, *args, **kwargs):
+    """
+    run the function with keyboard interrupt handling,
+    sometimes f handles the interrupt itself w/o raising exception again
+    this function will intercept the signal
+    """
+
+    def handler(signum, frame):
+        # raise a custom exception so f won't handle it
+        raise Exception("caught signal interruption in run_exception")
+
+    signal.signal(signal.SIGINT, handler)
+    return f(*args, **kwargs)
+
+
 def unquoted_shell_escape(string):
     """escape shell string without quotes"""
     return re.sub(r'([ \\\'"!$`])', r"\\\1", string)
@@ -220,12 +236,12 @@ def print_openai_stream(ans):
 
     collected_chunks = []
     collected_messages = []
-    start_time = time.time()
+    # start_time = time.time()
     for chunk in ans:
-        chunk_time = time.time() - start_time
+        # chunk_time = time.time() - start_time
         collected_chunks.append(chunk)  # save the event response
         chunk_message = chunk.choices[0].delta.content  # extract the message
-        if chunk_message != None:
+        if chunk_message is not None:
             collected_messages.append(chunk_message)  # save the message
             print(chunk_message, end="", flush=True)
         # print(f"Message received {chunk_time:.2f} seconds after request: {chunk_message}")  # print the delay and text
@@ -259,7 +275,7 @@ def custom_print(d):
     """
     custom print for dictionary, to print nested dictionary
     """
-    if type(d) is not dict:
+    if not isinstance(d, dict):
         print(d)
         return
     print("{")
@@ -358,25 +374,27 @@ def strip_multiline(text):
 
 
 def human_llm(prompt):
-    if type(prompt) is not str:
+    if not isinstance(prompt, str):
         prompt = prompt.to_string()
     res = input(colored(prompt + "\nwaiting for response: ", "yellow"))
     return AIMessage(res)
 
 
-def flatten(l):
+def flatten(lists):
     # check if iterable
-    if isinstance(l, (list, tuple)):
-        for el in l:
+    if isinstance(lists, (list, tuple)):
+        for el in lists:
             yield from flatten(el)
     else:
-        yield l
+        yield lists
     return
 
 
 def pmap(f, inputs):
     """inputs are iterable of input to the process function f,
     doesn't work with anonymous functions"""
+    import multiprocessing
+
     num_processes = multiprocessing.cpu_count()
     print(num_processes, "cpus for parrallel map using multiprocesses")
     with multiprocessing.Pool(processes=num_processes) as pool:
@@ -643,6 +661,7 @@ When users ask for chat bot related commands, suggest the following:
 
     def __call__(self, prompt):
         prompt = prompt.strip()
+        prev_directory = os.getcwd()
 
         try:
             # first try known actions
@@ -651,11 +670,33 @@ When users ask for chat bot related commands, suggest the following:
                 v = prompt[len(k) :].strip()
                 print(f"executing bot command {k} {v}")
                 return self.known_actions[k](v)
-            raise Exception("not a known action")
+
+            # then try to execute the command
+            if prompt.startswith("cd "):
+                # Extract the directory from the input
+                directory = prompt.split("cd ", 1)[1].strip()
+                if directory == "-":
+                    directory = prev_directory
+                else:
+                    prev_directory = os.getcwd()
+                # Change directory within the Python process
+                os.chdir(directory)
+                return directory
+            else:
+                # subprocess start a new process, thus forgetting aliases and history
+                # solution: override system command by prepending to $PATH
+                # and use shared history file (search chatgpt)
+
+                # handle control-c correctly for child process (o/w kill parent python process)
+                # if don't care, then uncomment the following line, and comment out others
+                # subprocess.run(prompt, check=True, shell=True)
+                return run_subprocess_with_interrupt(prompt, check=True, shell=True)
+
         except KeyboardInterrupt:
             print(EXCEPTION_PROMPT, "KeyboardInterrupt")  # no need to ask llm
+            return None
         except Exception as e:
-            print(EXCEPTION_PROMPT, e, colored("asking the guru (llm me)", "yellow"))
+            print(EXCEPTION_PROMPT, e, colored("asking llm", "yellow"))
 
             context = self.get_context(prompt)
             prompt = f"Context: {context}\n\nQuestion: {prompt}"
@@ -666,6 +707,7 @@ When users ask for chat bot related commands, suggest the following:
 
             # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
             try:
+                # result = run_with_interrupt(self.chatbot, prompt); Doesn't work, need debug
                 result = self.chatbot(prompt)
             except KeyboardInterrupt:
                 print(
