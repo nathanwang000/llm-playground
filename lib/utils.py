@@ -13,6 +13,7 @@ import tempfile
 from collections import namedtuple
 from collections.abc import Mapping
 from typing import List
+from operator import itemgetter
 
 import openai
 import tqdm
@@ -54,7 +55,9 @@ DateRange.__repr__ = (
 
 
 def parse_time_range_from_AI_message(message: AIMessage) -> DateRange:
-    format_date = lambda x: datetime.datetime.strptime(x, "%m/%d/%Y")
+    def format_date(x):
+        return datetime.datetime.strptime(x, "%m/%d/%Y")
+
     start_dates = [
         format_date(d)
         for d in re.findall(r"start date:\s+(\d{1,2}/\d{1,2}/\d{4})", message.content)
@@ -113,6 +116,32 @@ def parse_time_range_from_query(query: str) -> DateRange:
     return result
 
 
+def parse_diary_entries(diary_txt) -> List[dict]:
+    """
+    Parse diary_txt into chunks marked by each date.
+    Assume entry format: "* date: something".
+    Parse into [{'date': ..., 'entry': "* date: 4/10/2022\n..."}, ...]
+    """
+    entries = []
+    current_entry = None
+
+    for line in diary_txt.split("\n"):
+        if line.startswith("* date:"):
+            if current_entry is not None:
+                entries.append(current_entry)
+            current_entry = {
+                "date": datetime.datetime.strptime(line.split(": ")[1], "%m/%d/%Y"),
+                "entry": line + "\n",
+            }
+        elif current_entry is not None:
+            current_entry["entry"] += line + "\n"
+
+    if current_entry is not None:
+        entries.append(current_entry)
+
+    return entries
+
+
 # Function to encode the image
 def encode_image_path(image_path):
     if image_path.startswith("http"):
@@ -134,9 +163,12 @@ def _process_wrapper(output_queue, func, args, kwargs):
 def run_multiprocess_with_interrupt(func, *args, **kwargs):
     """
     run func in a separate process, handle keyboard interrupt to only kill
-    the subprocess
+    the spawned process
     """
     import multiprocessing
+
+    # multiprocessing.set_start_method("fork")
+    # print("done forking")
 
     # Create a multiprocessing Queue to capture the output
     output_queue = multiprocessing.Queue()
@@ -562,38 +594,41 @@ class ChatVisionBot:
 #### users of llm
 class User:
     system_prompt = """
-You are an assistant for question-answering tasks. 
-Use the following pieces of retrieved context to answer the question. 
-If you don't know the answer, just say that you don't know.
-Cite the exact lines from the context that supports your answer.
+    You are an assistant for question-answering tasks. 
+    Use the following pieces of retrieved context to answer the question. 
+    If you don't know the answer, just say that you don't know.
+    Cite the exact lines from the context that supports your answer.
 
-If you happen to know the answer outside the provided context, clearly indicate that and provide the answer.
+    If you happen to know the answer outside the provided context, clearly indicate that and provide the answer.
 
-------------------- beginning of tool descriptions -------------------
-When users ask for chat bot related commands, suggest the following:
+    ------------------- beginning of tool descriptions -------------------
+    When users ask for chat bot related commands, suggest the following:
     
-{tools}
-"""
+    {tools}
+    """
 
     def __init__(
         self,
         chat=False,
-        chunk_size=1000,
-        chunk_overlap=200,
         model="gpt-4-1106-vision-preview",
         human=False,
+        show_context=False,
     ):
-        self.fnames = set()
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-        self.show_context = False
-        self.max_n_context = 3
-
-        # shared across User
-        self.chat = chat
-        self.human = human
-        self.model = model
+        # shared across Users
+        self.__dict__.update({k: v for k, v in locals().items() if k != "self"})
         self._reset()
+
+    def _add_known_actions(self, cls):
+        """recursively add known actions from the class"""
+        for name in dir(cls):
+            # or could use cls.__dict__.items() to get the method
+            method = getattr(cls, name)
+            if callable(method) and name.startswith("_known_action_"):
+                action_name = name[len("_known_action_") :]
+                if action_name not in self.known_actions:
+                    self.known_actions[action_name] = functools.partial(method, self)
+        for base_cls in cls.__bases__:
+            self._add_known_actions(base_cls)
 
     def _reset(self, *args, **kwargs):
         """
@@ -601,13 +636,7 @@ When users ask for chat bot related commands, suggest the following:
         can be called stating "reset" in the prompt
         """
         self.known_actions = {}
-
-        # add all instance method that starts with _ to the known actions
-        for k, v in self.__class__.__dict__.items():
-            if k.startswith("_known_action_") and callable(v):
-                self.known_actions[k[len("_known_action_") :]] = functools.partial(
-                    v, self
-                )
+        self._add_known_actions(self.__class__)
 
         # reset chatbot: human for debugging
         if self.human:
@@ -623,7 +652,7 @@ When users ask for chat bot related commands, suggest the following:
         a piece of text to show when the user starts the program
         """
         raise NotImplementedError(
-            "welcome method not implemented, should be implemented in the subclass"
+            "_known_action_welcome method not implemented, should be implemented in the subclass"
         )
 
     def _known_action_show_settings(self, *args, **kwargs):
@@ -639,7 +668,7 @@ When users ask for chat bot related commands, suggest the following:
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
         such as "show me your prompt"'''
         raise NotImplementedError(
-            "get_prompt method not implemented, should be implemented in the subclass"
+            "_known_action_get_prompt method not implemented, should be implemented in the subclass"
         )
 
     def _known_action_list_tools(self, *args, **kwargs):
@@ -706,8 +735,8 @@ When users ask for chat bot related commands, suggest the following:
                 print(colored("Context:\n", "green"), context)
 
             # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
+            # so far mp based method have pickle issues
             try:
-                # result = run_with_interrupt(self.chatbot, prompt); Doesn't work, need debug
                 result = self.chatbot(prompt)
             except KeyboardInterrupt:
                 print(
@@ -721,40 +750,142 @@ When users ask for chat bot related commands, suggest the following:
         return result
 
 
-class DocReader(User):
+class DiaryReader(User):
     system_prompt = """
-You are an assistant for question-answering tasks. 
-Use the following pieces of retrieved context to answer the question. 
-If you don't know the answer, just say that you don't know.
-Cite the exact lines from the context that supports your answer.
+    You are given a user profile and the user's diary entries.
+    You will act like you are the user and respond to questions about the user.
+    When answering questions, you should cite from user's diary or profile as evidence (cite date if possible).
+    Be concise unless instructed otherwise.
 
-If you happen to know the answer outside the provided context, clearly indicate that and provide the answer.
+    Response tone: {tone}
 
-------------------- beginning of tool descriptions -------------------
-When users ask for chat bot related commands, suggest the following:
+    ------------------- beginning of tool descriptions -------------------
+    When users ask for chat bot related commands, suggest the following:
     
-{tools}
-"""
+    {tools}
+
+    -------------------- end of tool descriptions --------------------
+
+    user profile: ```{profile}```
+    """
 
     def __init__(
         self,
+        diary_fn,
+        profile_fn,
+        # needed with base class
         chat=False,
-        chunk_size=1000,
-        chunk_overlap=200,
         model="gpt-4-1106-vision-preview",
         human=False,
     ):
-        self.fnames = set()
+        self.diary = open(diary_fn).read()
+        self.profile = open(profile_fn).read()
+        self.tone = "less serious"
+        super().__init__(chat=chat, model=model, human=human, show_context=False)
+
+    def _known_action_change_tone(self, *args, **kwargs) -> str:
+        """change the tone of the chatbot to be more serious or more casual"""
+        if len(args) == 0 or args[0].strip() == "":
+            return self.tone
+        self.tone = args[0]
+        return self.tone
+
+    def _known_action_welcome(self, *args) -> str:
+        """
+        a piece of text to show when the user starts the program
+        """
+        message = subprocess.check_output(["figlet", "Know thyself"]).decode()
+        inspire = colored(
+            "You are creative, openminded, and ready to learn new things about this absurd world!",
+            "yellow",
+        )
+        quote = (
+            colored("Random words of wisdom:\n\n", "green")
+            + subprocess.check_output(["fortune"]).decode()
+        )
+        reminder = "\n".join(
+            [
+                colored("Ideas to try:\n", "green"),
+                "- learn a new emacs (c-h r) or python trick",
+                "- update cheatsheet about me: https://shorturl.at/ltwKW",
+            ]
+        )
+        user_prompt = "\n".join(
+            [
+                colored("You may wanna ask:\n", "green"),
+                "- what should I learn next?",
+                "- improvement from last week?",
+                "- things to work on to better physical and mental health?",
+            ]
+        )
+        return f"{message}\n{inspire}\n\n{quote}\n{reminder}\n\n{user_prompt}\n"
+
+    def _known_action_get_prompt(self, *args, **kwargs):
+        '''return the prompt of the current chatbot; use this tool when users ask for the prompt
+        such as "show me your prompt"'''
+        return self.system_prompt.format(
+            tools=self._known_action_list_tools(), profile=self.profile, tone=self.tone
+        )
+
+    def get_context(self, question) -> str:
+        """specific retriever for diary"""
+        try:
+            # extract the diary context
+            try:
+                entries = parse_diary_entries(self.diary)
+            except Exception as e:
+                print(
+                    EXCEPTION_PROMPT,
+                    e,
+                    "in diary_content_retriever(), using full entries",
+                )
+                return self.diary
+
+            s_date, e_date = parse_time_range_from_query(question)
+            # test if each entry is relevant to the time in the question
+            entries = [e for e in entries if s_date <= e["date"] <= e_date]
+        except Exception as e:
+            entries = sorted(entries, key=itemgetter("date"), reverse=True)[:7]
+            print(
+                EXCEPTION_PROMPT,
+                e,
+                "in diary_content_retriever(), using last 7 entries sorted by date",
+            )
+            print([e["date"].strftime("%m/%d/%Y") for e in entries])
+
+        return "\n\n".join([e["entry"] for e in entries])
+
+
+class DocReader(User):
+    system_prompt = """
+    You are an assistant for question-answering tasks. 
+    Use the following pieces of retrieved context to answer the question. 
+    If you don't know the answer, just say that you don't know.
+    Cite the exact lines from the context that supports your answer.
+
+    If you happen to know the answer outside the provided context, clearly indicate that and provide the answer.
+
+    ------------------- beginning of tool descriptions -------------------
+    When users ask for chat bot related commands, suggest the following:
+    
+    {tools}
+    """
+
+    def __init__(
+        self,
+        chunk_size=1000,
+        chunk_overlap=200,
+        # needed with base class
+        chat=False,
+        model="gpt-4-1106-vision-preview",
+        human=False,
+    ):
+        super().__init__(chat=chat, model=model, human=human, show_context=False)
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        self.model = model
-        self.show_context = False
+        # default
+        self.fnames = set()
         self.max_n_context = 3
-
-        # shared
-        self.chat = chat
-        self.human = human
-        self._reset()
 
     def _known_action_welcome(self, *args) -> str:
         """
@@ -797,11 +928,6 @@ When users ask for chat bot related commands, suggest the following:
     def _known_action_set_n_context(self, n):
         """set the number of context to show"""
         self.max_n_context = int(n)
-
-    def _known_action_toggle_show_context(self, *args, **kwargs) -> str:
-        """toggle showing the context of the question"""
-        self.show_context = not self.show_context
-        return f"showing context: {self.show_context}"
 
     def _known_action_add(self, dirname):
         """add a directory to the current chatbot, if given a file, add the file instead"""
