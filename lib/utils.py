@@ -126,7 +126,8 @@ def parse_diary_entries(diary_txt) -> List[dict]:
     current_entry = None
 
     for line in diary_txt.split("\n"):
-        if line.startswith("* date:"):
+        # Assume date is in the format "* date: 4/10/2022" or "* Date: 04/10/2022"
+        if line.startswith("* Date:") or line.startswith("* date:"):
             if current_entry is not None:
                 entries.append(current_entry)
             current_entry = {
@@ -368,13 +369,15 @@ def load_doc(fname, in_memory_load=True) -> List[Document]:
     # google drive loader:
     # follow https://developers.google.com/drive/api/quickstart/python # run the code to get token.json
     # remember to change scopes to .../auth/drive and auth/docs in the app setting and when running the script
-    # save token.json to secrets/token.json
+    # save token.json to ../../../diary/secrets/token.json relative to current file path; TODO: use env var
+    # follow https://developers.google.com/drive/api/quickstart/python
+    token_path = f"{os.path.dirname(__file__)}/../../../diary/secrets/token.json"
     if fname.startswith("https://drive.google.com"):
         # see https://python.langchain.com/docs/integrations/document_loaders/google_drive/
         # e.g., https://drive.google.com/drive/folders/1shC6DvfVAF4LCc5VZdMFoSkafpZv3p0O
         loader = GoogleDriveLoader(
             folder_id=fname.split("/")[-1],
-            token_path="secrets/token.json",  # follow https://developers.google.com/drive/api/quickstart/python
+            token_path=token_path,
             # Optional: configure whether to recursively fetch files from subfolders. Defaults to False.
             recursive=True,
         )
@@ -384,7 +387,7 @@ def load_doc(fname, in_memory_load=True) -> List[Document]:
         print(fname.split("/")[-2])
         loader = GoogleDriveLoader(
             document_ids=[fname.split("/")[-2]],
-            token_path="secrets/token.json",  # follow https://developers.google.com/drive/api/quickstart/python
+            token_path=token_path,
         )
     else:
         ext = fname.split(".")[-1]
@@ -778,8 +781,8 @@ class DiaryReader(User):
         model="gpt-4-1106-vision-preview",
         human=False,
     ):
-        self.diary = open(diary_fn).read()
-        self.profile = open(profile_fn).read()
+        self.diary = load_doc(diary_fn)[0].page_content
+        self.profile = load_doc(profile_fn)[0].page_content
         self.tone = "less serious"
         super().__init__(chat=chat, model=model, human=human, show_context=False)
 
@@ -912,6 +915,7 @@ class DocReader(User):
                 colored("You may wanna ask:\n", "green"),
                 "- what should I research next?",
                 "- insight from my research diary last week?",
+                "- add to occasion ideas in for event planning: https://shorturl.at/gzQ17",
             ]
         )
         other_tips = "\n".join(
