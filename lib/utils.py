@@ -808,6 +808,7 @@ class DiaryReader(User):
                 colored("Ideas to try:\n", "green"),
                 "- learn a new emacs (c-h r) or python trick",
                 "- update cheatsheet about me: https://shorturl.at/ltwKW",
+                "- my work items are in https://shorturl.at/HLP59",
             ]
         )
         user_prompt = "\n".join(
@@ -905,6 +906,7 @@ class DocReader(User):
                 colored("Ideas to try:\n", "green"),
                 "- Explaination hypothesis: A model's true test of generality lies in its ability to eloquently convey its insights to minds beyond its own.",
                 "- Idea: generate explaination to help another model increase its performance -> in turn increase the performance of the first model",
+                "- my work items are in https://shorturl.at/HLP59",
             ]
         )
         user_prompt = "\n".join(
