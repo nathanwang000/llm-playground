@@ -917,7 +917,7 @@ class DocReader(User):
                 colored("You may wanna ask:\n", "green"),
                 "- what should I research next?",
                 "- insight from my research diary last week?",
-                "- add to occasion ideas in for event planning: https://shorturl.at/gzQ17",
+                "- add to occasion ideas for event planning: https://shorturl.at/gzQ17",
             ]
         )
         other_tips = "\n".join(
