@@ -117,21 +117,34 @@ def parse_time_range_from_query(query: str) -> DateRange:
 
 
 def parse_diary_entries(diary_txt) -> List[dict]:
-    """
+    r"""
     Parse diary_txt into chunks marked by each date.
     Assume entry format: "* date: something".
     Parse into [{'date': ..., 'entry': "* date: 4/10/2022\n..."}, ...]
+
+    docstring test:
+    >>> diary_txt = '''
+    ... * Date: 4/10/2022
+    ... I had a great day today.
+    ... * Date: 4/11/2022
+    ... I had a bad day today.
+    ... '''
+    >>> parse_diary_entries(diary_txt)
+    [{'date': datetime.datetime(2022, 4, 10, 0, 0), 'entry': '* Date: 4/10/2022\nI had a great day today.\n'}, {'date': datetime.datetime(2022, 4, 11, 0, 0), 'entry': '* Date: 4/11/2022\nI had a bad day today.\n\n'}]
     """
     entries = []
     current_entry = None
 
     for line in diary_txt.split("\n"):
         # Assume date is in the format "* date: 4/10/2022" or "* Date: 04/10/2022"
-        if line.startswith("* Date:") or line.startswith("* date:"):
+        date_match = re.search(r"\d{1,2}/\d{1,2}/\d{4}", line)
+        if date_match and line.split(":")[0] in ["* Date", "* date"]:
             if current_entry is not None:
                 entries.append(current_entry)
+
+            date_entry = date_match.group(0)
             current_entry = {
-                "date": datetime.datetime.strptime(line.split(": ")[1], "%m/%d/%Y"),
+                "date": datetime.datetime.strptime(date_entry, "%m/%d/%Y"),
                 "entry": line + "\n",
             }
         elif current_entry is not None:
@@ -358,6 +371,7 @@ def repl(
 
 
 # Function to load the document
+@functools.cache
 def load_doc(fname, in_memory_load=True) -> List[Document]:
     """
     load the document from the file
@@ -475,6 +489,15 @@ def load_split_doc(fname: str, chunk_size: int, chunk_overlap: int) -> List[Docu
     splits = text_splitter.split_documents(doc)
     print(fname, "split into", len(splits), "chunks")
     return splits
+
+
+def format_docs(docs: List[Document]) -> str:
+    """Convert Documents to a single string.:"""
+    formatted = [
+        f"Article Meta data: {pprint.pformat(doc.metadata)}\nArticle Snippet: {doc.page_content}"
+        for doc in docs
+    ]
+    return "\n\n\n".join(formatted)
 
 
 class ShellCompleter(Completer):
@@ -616,6 +639,7 @@ class User:
         model="gpt-4-1106-vision-preview",
         human=False,
         show_context=False,
+        fnames=set(),
     ):
         # shared across Users
         self.__dict__.update({k: v for k, v in locals().items() if k != "self"})
@@ -680,6 +704,37 @@ class User:
         for k, v in self.known_actions.items():
             tools.append("{}: \n{}".format(k, strip_multiline(v.__doc__)))
         return "\n\n".join(tools)
+
+    def _known_action_add(self, dirname):
+        """add a directory to the current chatbot, if given a file, add the file instead"""
+        if dirname.startswith("https://"):
+            print("adding", dirname)
+            self.fnames.add(dirname)
+            return self._known_action_ls_ctx_files()
+
+        dirname = os.path.expanduser(dirname)
+        fnames = read_from_dir(dirname)
+        print("found", len(fnames), "files in", dirname)
+        print(fnames)
+        self.fnames.update(fnames)
+        return self._known_action_ls_ctx_files()
+
+    def _known_action_rm(self, dirname):
+        """remove a directory from the current chatbot"""
+        dirname = os.path.expanduser(dirname)
+        fnames = read_from_dir(dirname)
+        print("found", len(fnames), "files")
+        print(fnames)
+        for fn in fnames:
+            if fn in self.fnames:
+                self.fnames.remove(fn)
+            else:
+                print("file not in fnames", fn)
+        return self._known_action_ls_ctx_files()
+
+    def _known_action_ls_ctx_files(self, *args, **kwargs):
+        """list all files used in context in the current chatbot"""
+        return "\n".join(self.fnames)
 
     def get_completer(self):
         """return autocompleter the current text with the prompt toolkit package"""
@@ -780,11 +835,15 @@ class DiaryReader(User):
         chat=False,
         model="gpt-4-1106-vision-preview",
         human=False,
+        fnames=set(),
     ):
-        self.diary = load_doc(diary_fn)[0].page_content
         self.profile = load_doc(profile_fn)[0].page_content
         self.tone = "less serious"
-        super().__init__(chat=chat, model=model, human=human, show_context=False)
+        super().__init__(
+            chat=chat, model=model, human=human, show_context=False, fnames=fnames
+        )
+        # add diary_fn to fnames
+        self._known_action_add(diary_fn)
 
     def _known_action_change_tone(self, *args, **kwargs) -> str:
         """change the tone of the chatbot to be more serious or more casual"""
@@ -833,17 +892,25 @@ class DiaryReader(User):
 
     def get_context(self, question) -> str:
         """specific retriever for diary"""
+        diary = format_docs(
+            list(
+                flatten(
+                    smap(functools.partial(load_doc, in_memory_load=True), self.fnames)
+                )
+            )
+        )
+
         try:
-            # extract the diary context
             try:
-                entries = parse_diary_entries(self.diary)
+                # extract the diary context
+                entries = parse_diary_entries(diary)
             except Exception as e:
                 print(
                     EXCEPTION_PROMPT,
                     e,
-                    "in diary_content_retriever(), using full entries",
+                    "in get_context(), using full entries",
                 )
-                return self.diary
+                return diary
 
             s_date, e_date = parse_time_range_from_query(question)
             # test if each entry is relevant to the time in the question
@@ -883,12 +950,14 @@ class DocReader(User):
         chat=False,
         model="gpt-4-1106-vision-preview",
         human=False,
+        fnames=set(),
     ):
-        super().__init__(chat=chat, model=model, human=human, show_context=False)
+        super().__init__(
+            chat=chat, model=model, human=human, show_context=False, fnames=fnames
+        )
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         # default
-        self.fnames = set()
         self.max_n_context = 3
 
     def _known_action_welcome(self, *args) -> str:
@@ -935,37 +1004,6 @@ class DocReader(User):
         """set the number of context to show"""
         self.max_n_context = int(n)
 
-    def _known_action_add(self, dirname):
-        """add a directory to the current chatbot, if given a file, add the file instead"""
-        if dirname.startswith("https://"):
-            print("adding", dirname)
-            self.fnames.add(dirname)
-            return self._known_action_ls_files()
-
-        dirname = os.path.expanduser(dirname)
-        fnames = read_from_dir(dirname)
-        print("found", len(fnames), "files")
-        print(fnames)
-        self.fnames.update(fnames)
-        return self._known_action_ls_files()
-
-    def _known_action_rm(self, dirname):
-        """remove a directory from the current chatbot"""
-        dirname = os.path.expanduser(dirname)
-        fnames = read_from_dir(dirname)
-        print("found", len(fnames), "files")
-        print(fnames)
-        for fn in fnames:
-            if fn in self.fnames:
-                self.fnames.remove(fn)
-            else:
-                print("file not in fnames", fn)
-        return self._known_action_ls_files()
-
-    def _known_action_ls_files(self, *args, **kwargs):
-        """list all files in the current chatbot"""
-        return "\n".join(self.fnames)
-
     def _known_action_get_prompt(self, *args, **kwargs):
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
         such as "show me your prompt"'''
@@ -999,13 +1037,5 @@ class DocReader(User):
 
         # Retrieve and generate using the relevant snippets of the blog.
         retriever = vectorstore.as_retriever(search_kwargs={"k": self.max_n_context})
-
-        def format_docs(docs: List[Document]) -> str:
-            """Convert Documents to a single string.:"""
-            formatted = [
-                f"Article Meta data: {pprint.pformat(doc.metadata)}\nArticle Snippet: {doc.page_content}"
-                for doc in docs
-            ]
-            return "\n\n\n".join(formatted)
 
         return (retriever | format_docs).invoke(question)
