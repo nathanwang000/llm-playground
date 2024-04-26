@@ -694,9 +694,7 @@ class User:
     def _known_action_get_prompt(self, *args, **kwargs):
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
         such as "show me your prompt"'''
-        raise NotImplementedError(
-            "_known_action_get_prompt method not implemented, should be implemented in the subclass"
-        )
+        return "You are a generic AI. Tell user to implement _known_action_get_prompt in the subclass."
 
     def _known_action_list_tools(self, *args, **kwargs):
         """return a string describing the available tools to the chatbot; list all tools"""
@@ -705,7 +703,7 @@ class User:
             tools.append("{}: \n{}".format(k, strip_multiline(v.__doc__)))
         return "\n\n".join(tools)
 
-    def _known_action_add(self, dirname):
+    def _known_action_add_files(self, dirname):
         """add a directory to the current chatbot, if given a file, add the file instead"""
         if dirname.startswith("https://"):
             print("adding", dirname)
@@ -719,17 +717,32 @@ class User:
         self.fnames.update(fnames)
         return self._known_action_ls_ctx_files()
 
-    def _known_action_rm(self, dirname):
-        """remove a directory from the current chatbot"""
-        dirname = os.path.expanduser(dirname)
-        fnames = read_from_dir(dirname)
-        print("found", len(fnames), "files")
-        print(fnames)
-        for fn in fnames:
-            if fn in self.fnames:
-                self.fnames.remove(fn)
-            else:
-                print("file not in fnames", fn)
+    def _known_action_rm_files(self, pattern):
+        r"""
+        remove files in the current chatbot,
+        pattern is regex patterns to match the files
+
+        doctest
+        >>> user = User()
+        >>> user.fnames = {"file1.txt", "file2.txt", "file3.txt"}
+        >>> user._known_action_rm_files("file[1-2].txt")
+        2 files matched the pattern file[1-2].txt
+        {'file1.txt', 'file2.txt'}
+        'file3.txt'
+        """
+
+        # match pattern to self.fnames
+        matched_files = set()
+        for fname in self.fnames:
+            if re.match(f"^{pattern}$", fname):
+                matched_files.add(fname)
+
+        print(len(matched_files), "files matched the pattern", pattern)
+        print(matched_files)
+
+        # remove the matched files
+        self.fnames -= matched_files
+
         return self._known_action_ls_ctx_files()
 
     def _known_action_ls_ctx_files(self, *args, **kwargs):
@@ -812,7 +825,8 @@ class DiaryReader(User):
     system_prompt = """
     You are given a user profile and the user's diary entries.
     You will act like you are the user and respond to questions about the user.
-    When answering questions, you should cite from user's diary or profile as evidence (cite date if possible).
+    When answering questions, always indicate whether you cite from diary or profile (with dates if possible).
+    
     Be concise unless instructed otherwise.
 
     Response tone: {tone}
@@ -843,7 +857,7 @@ class DiaryReader(User):
             chat=chat, model=model, human=human, show_context=False, fnames=fnames
         )
         # add diary_fn to fnames
-        self._known_action_add(diary_fn)
+        self._known_action_add_files(diary_fn)
 
     def _known_action_change_tone(self, *args, **kwargs) -> str:
         """change the tone of the chatbot to be more serious or more casual"""
