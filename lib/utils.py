@@ -726,19 +726,29 @@ class User:
         >>> user = User()
         >>> user.fnames = {"file1.txt", "file2.txt", "file3.txt"}
         >>> user._known_action_rm_files("file[1-2].txt")
-        2 files matched the pattern file[1-2].txt
-        {'file1.txt', 'file2.txt'}
+        2 files matched the pattern file[1-2].txt : ['file1.txt', 'file2.txt']
         'file3.txt'
+        >>> user._known_action_rm_files(".*")
+        1 files matched the pattern .* : ['file3.txt']
+        ''
         """
 
         # match pattern to self.fnames
         matched_files = set()
         for fname in self.fnames:
-            if re.match(f"^{pattern}$", fname):
-                matched_files.add(fname)
+            try:
+                if re.match(f"^{pattern}$", fname):
+                    matched_files.add(fname)
+            except re.error as e:
+                print(EXCEPTION_PROMPT, "in regex", pattern, e)
 
-        print(len(matched_files), "files matched the pattern", pattern)
-        print(matched_files)
+        print(
+            len(matched_files),
+            "files matched the pattern",
+            pattern,
+            ":",
+            sorted(list(matched_files)),
+        )
 
         # remove the matched files
         self.fnames -= matched_files
@@ -753,13 +763,13 @@ class User:
         """return autocompleter the current text with the prompt toolkit package"""
         return ShellCompleter(self.known_actions.keys())
 
-    def get_context(self, question) -> str:
+    def get_context(self, question: str) -> str:
         """return the context of the question"""
         raise NotImplementedError(
             "get_context method not implemented, should be implemented in the subclass"
         )
 
-    def __call__(self, prompt):
+    def __call__(self, prompt: str):
         prompt = prompt.strip()
         prev_directory = os.getcwd()
 
@@ -799,6 +809,8 @@ class User:
             print(EXCEPTION_PROMPT, e, colored("asking llm", "yellow"))
 
             context = self.get_context(prompt)
+            if not context:
+                print(EXCEPTION_PROMPT, "no context found")
             prompt = f"Context: {context}\n\nQuestion: {prompt}"
             print("done retrieving relevant context")
 
