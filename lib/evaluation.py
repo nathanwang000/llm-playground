@@ -16,4 +16,28 @@ We need to evaluate the edge for correctness, etc.
   - For generator: f_answer_groundness(c, a) -> [float, Explanation]
   - For question->answer: f_answer_relevance(q, a) -> [float, Explanation]
 We can generalize this to an EdgeEval class
+
+TODO: the generalization of EdgeEval is ChatEval
+- assume input and output are strings
+- can be created as a decorator function
+- get context from docstring, function signature, code body, etc.
+- check safety of the input: score, explanation, suggestion for rewrite
+- check safety of the output: score, explanation, suggestion for rewrite
+- check the relevance of ouptput given input (e.g., groundness, answer/context relevance)
 """
+
+import functools
+
+
+def ChatEval(f):
+    @functools.wraps(f)
+    def wrapper(input: str) -> str:
+        assert isinstance(input, str), "chat eval only takes string input"
+        # TODO: check input
+        output = f(input)
+        # TODO: check output
+        # TODO: check relevance | input, output
+        # gather f's information: docstring, signature, code body, etc.
+        return output
+
+    return wrapper
