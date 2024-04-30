@@ -27,17 +27,38 @@ TODO: the generalization of EdgeEval is ChatEval
 """
 
 import functools
+import inspect
+from typing import Callable
+from termcolor import colored
+
+
+def get_function_info(func: Callable) -> (str, str):
+    """
+    Get the code body and docstring of a function
+    """
+    code_body = inspect.getsource(func)
+    docstring = inspect.getdoc(func)
+    return code_body, docstring
 
 
 def ChatEval(f):
+    """
+    TODO add docstring
+    """
+
     @functools.wraps(f)
     def wrapper(input: str) -> str:
         assert isinstance(input, str), "chat eval only takes string input"
         # TODO: check input
         output = f(input)
         # TODO: check output
+        # gather f's information
+        code_body, docstring = get_function_info(f)
+        if docstring == "":
+            print(colored("Warning: function does not have a docstring", "yellow"))
         # TODO: check relevance | input, output
-        # gather f's information: docstring, signature, code body, etc.
+        # check_relevance(input, output)
+
         return output
 
     return wrapper
