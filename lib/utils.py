@@ -83,7 +83,7 @@ def parse_time_range_from_AI_message(message: AIMessage) -> DateRange:
     return DateRange(start_dates[0], end_dates[0])
 
 
-def parse_time_range_from_query(query: str) -> DateRange:
+def parse_time_range_from_query(query: str, model: str = "gpt-4-turbo") -> DateRange:
     p = ChatPromptTemplate.from_messages(
         [
             (
@@ -108,7 +108,7 @@ def parse_time_range_from_query(query: str) -> DateRange:
         ]
     )
     today = datetime.datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
-    llm = ChatOpenAI(model_name="gpt-4-1106-vision-preview")
+    llm = ChatOpenAI(model_name=model)
     chain = p | llm | parse_time_range_from_AI_message
 
     result = chain.invoke({"query": query, "today": today})
@@ -543,7 +543,7 @@ class ChatVisionBot:
         system="",
         max_tokens=1000,
         stop="<|endoftext|>",
-        model="gpt-4-1106-vision-preview",
+        model="gpt-4-turbo",
         stream=True,
     ):
         self.model = model
@@ -636,7 +636,7 @@ class User:
     def __init__(
         self,
         chat=False,
-        model="gpt-4-1106-vision-preview",
+        model="gpt-4-turbo",
         human=False,
         show_context=False,
         fnames=set(),
@@ -859,7 +859,7 @@ class DiaryReader(User):
         profile_fn,
         # needed with base class
         chat=False,
-        model="gpt-4-1106-vision-preview",
+        model="gpt-4-turbo",
         human=False,
         fnames=set(),
     ):
@@ -938,7 +938,9 @@ class DiaryReader(User):
                 )
                 return diary
 
-            s_date, e_date = parse_time_range_from_query(question)
+            s_date, e_date = parse_time_range_from_query(
+                question
+            )  # fixme: maybe use self.model, but gpt3.5 doesn't work good enough
             # test if each entry is relevant to the time in the question
             entries = [e for e in entries if s_date <= e["date"] <= e_date]
         except Exception as e:
@@ -974,7 +976,7 @@ class DocReader(User):
         chunk_overlap=200,
         # needed with base class
         chat=False,
-        model="gpt-4-1106-vision-preview",
+        model="gpt-4-turbo",
         human=False,
         fnames=set(),
     ):
