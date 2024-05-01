@@ -24,6 +24,9 @@ TODO: the generalization of EdgeEval is ChatEval
 - check safety of the input: score, explanation, suggestion for rewrite
 - check safety of the output: score, explanation, suggestion for rewrite
 - check the relevance of ouptput given input (e.g., groundness, answer/context relevance)
+
+# TODO: try giskard (red teaming) and trullm (rag triad package) for the evaluation
+# TODO: try using a less expensive model for the evaluation like babbage-002 (5% of the cost of gpt4)
 """
 
 import functools
