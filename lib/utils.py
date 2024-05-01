@@ -42,8 +42,9 @@ from tenacity import (
     wait_exponential,
 )
 from termcolor import colored
+from const import EXCEPTION_PROMPT
+from evaluation import chat_eval
 
-EXCEPTION_PROMPT = colored("Exception:", "red")
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
 
@@ -808,7 +809,7 @@ class User:
         except Exception as e:
             print(EXCEPTION_PROMPT, e, colored("asking llm", "yellow"))
 
-            context = self.get_context(prompt)
+            context = chat_eval(self.get_context)(prompt)
             if not context:
                 print(EXCEPTION_PROMPT, "no context found")
             prompt = f"Context: {context}\n\nQuestion: {prompt}"

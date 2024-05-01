@@ -26,13 +26,22 @@ TODO: the generalization of EdgeEval is ChatEval
 - check the relevance of ouptput given input (e.g., groundness, answer/context relevance)
 
 # TODO: try giskard (red teaming) and trullm (rag triad package) for the evaluation
-# TODO: try using a less expensive model for the evaluation like babbage-002 (5% of the cost of gpt4)
 """
 
 import functools
 import inspect
+import os
+import sys
+import re
 from typing import Callable
+
+from langchain_core.messages import AIMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+import numpy as np
 from termcolor import colored
+from const import EXCEPTION_PROMPT
 
 
 def get_function_info(func: Callable) -> (str, str):
@@ -44,24 +53,133 @@ def get_function_info(func: Callable) -> (str, str):
     return code_body, docstring
 
 
-def ChatEval(f):
+def human(prompt):
+    """Prompt the user for input and return the response as an AIMessage; for debugging"""
+    res = input(colored(prompt.to_string() + "\nwaiting for response: ", "yellow"))
+    return AIMessage(res)
+
+
+def parse_relevance_output(message: AIMessage) -> (float, str):
     """
-    TODO add docstring
+    Parse the output of check_relevance
+
+    Assummes input message is in the format:
+    score: <score between 0 to 1>
+    explanation: <explanation>
+
+    Returns: a dict with keys score and explanation
+    """
+    scores = list(map(float, re.findall(r"score: (.*)", message.content)))
+    explanations = re.findall(r"explanation: (.*)", message.content)
+
+    if not scores:
+        print(EXCEPTION_PROMPT, f"no scores found in `{message}`, using nan")
+        scores = [np.nan]
+
+    if not explanations:
+        print(EXCEPTION_PROMPT, f'no explanation found in `{message}`, using ""')
+        explanations = [""]
+    return {"score": scores[0], "explanation": explanations[0]}
+
+
+def check_relevance(
+    f: Callable[str, str],
+    question: str,
+    answer: str,
+    ai_mode: bool = False,
+    model: str = "gpt-3.5-turbo",
+):
+    """
+    Check the relevance of the answer to the question given the function f
+
+    Args:
+    - f: function that takes a question and returns an answer
+    - question: input to f
+    - answer: output of f
+    - ai_mode: whether to use AI to evaluate the relevance
+    - model: the AI model to use if ai_mode is True
+
+    Returns:
+    - score: float between 0 and 1
+    - explanation: str
+    """
+    # gather f's information
+    code_body, docstring = get_function_info(f)
+
+    if docstring == "":
+        print(EXCEPTION_PROMPT, "no docstring, using code body")
+        docstring = code_body
+        # TODO: generate a docstring from code_body in case default is missing
+
+    system_prompt = (
+        "Given a function's information\n"
+        f"function info: ```\n{docstring}\n```\n"
+        "your job is to check the relevance of the answer to the question."
+        " Please provide a score between 0 and 1."
+        " 0 means not relevant at all, 1 means very relevant.\n"
+        "You can also provide a short explanation.\n"
+        "----Example output----\n"
+        "score: <score between 0 to 1>\n"
+        "explanation: <explanation>"
+    )
+    p = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            (
+                "user",
+                "Question: ```{question}```\n\n"
+                "Answer: ```{answer}```\n\n"
+                "Remember your instructions: ```{system_prompt}```",
+            ),
+        ]
+    )  # use .pretty_print() to show prompt
+
+    # human for debug
+    llm = ChatOpenAI(model_name=model) if ai_mode else human
+
+    chain = p | llm | parse_relevance_output
+    return chain.invoke(
+        {"question": question, "answer": answer, "system_prompt": system_prompt}
+    )
+
+
+def test_f(s: str) -> str:
+    """Capitalizes the input string"""
+    return s.capitalize()
+
+
+if __name__ == "__main__":
+    print(check_relevance(test_f, "some string", "some other string", ai_mode=True))
+
+
+def chat_eval(f):
+    """
+    Decorator for chat evaluation
     """
 
     @functools.wraps(f)
-    def wrapper(input: str) -> str:
-        assert isinstance(input, str), "chat eval only takes string input"
+    def wrapper(question: str) -> str:
+        assert isinstance(question, str), "chat eval only takes string input"
         # TODO: check input
-        output = f(input)
+        answer = f(question)
         # TODO: check output
-        # gather f's information
-        code_body, docstring = get_function_info(f)
-        if docstring == "":
-            print(colored("Warning: function does not have a docstring", "yellow"))
-        # TODO: check relevance | input, output
-        # check_relevance(input, output)
+        # check relevance | input, output
+        print(colored(f"checking relevance of {f.__name__}", "yellow"))
+        rel = check_relevance(f, question, answer, ai_mode=True)
+        if rel["score"] < 0.5:
+            print(
+                EXCEPTION_PROMPT,
+                f"low relevance score of {rel['score']}, explanation: {rel['explanation']}\n",
+            )
+        else:
+            print(
+                colored(
+                    f"relevance check passed with score of {rel['score']} because",
+                    "green",
+                ),
+                rel["explanation"],
+            )
 
-        return output
+        return answer
 
     return wrapper
