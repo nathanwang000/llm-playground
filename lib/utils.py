@@ -509,10 +509,10 @@ class ShellCompleter(Completer):
         self.commands = commands
         self.command_completer = WordCompleter(commands, ignore_case=True)
 
-    def cascade_match(self, text: str, vocab: List[str]):
+    def cascade_match(self, text: str, commands: List[str]):
         """
         text: str, the text to match
-        vocab: list of str, the vocabulary to match against
+        commands: list of str, the vocabulary to match against
 
         cascade rules for matching, if fail on one level, fall back
         to next level, return results
@@ -529,7 +529,7 @@ class ShellCompleter(Completer):
             lambda x: text.lower() in x.lower(),
         ]
         for rule in rules:
-            res = [x for x in vocab if rule(x)]
+            res = [x for x in commands if rule(x)]
             if len(res) != 0:
                 return res
 
