@@ -3,6 +3,7 @@
 import datetime
 import functools
 import glob
+import json
 import logging
 import os
 import pprint
@@ -12,11 +13,13 @@ import subprocess
 import tempfile
 from collections import namedtuple
 from collections.abc import Mapping
-from typing import List
 from operator import itemgetter
+from typing import List
 
 import openai
 import tqdm
+from const import EXCEPTION_PROMPT
+from evaluation import chat_eval
 
 # for caching see https://shorturl.at/tHTV4
 from langchain.embeddings import CacheBackedEmbeddings
@@ -42,8 +45,6 @@ from tenacity import (
     wait_exponential,
 )
 from termcolor import colored
-from const import EXCEPTION_PROMPT
-from evaluation import chat_eval
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
@@ -505,15 +506,48 @@ class ShellCompleter(Completer):
     def __init__(self, commands=None):
         if commands is None:
             commands = []
+        self.commands = commands
         self.command_completer = WordCompleter(commands, ignore_case=True)
+
+    def cascade_match(self, text: str, vocab: List[str]):
+        """
+        text: str, the text to match
+        vocab: list of str, the vocabulary to match against
+
+        cascade rules for matching, if fail on one level, fall back
+        to next level, return results
+        a) starts with the text
+        b) regular expression
+        c) contains the text
+        d) contains the text (case insensitive)
+        e) todo: semantic search
+        """
+        rules = [
+            lambda x: x.startswith(text),
+            lambda x: re.match(text, x),
+            lambda x: text in x,
+            lambda x: text.lower() in x.lower(),
+        ]
+        for rule in rules:
+            res = [x for x in vocab if rule(x)]
+            if len(res) != 0:
+                return res
+
+        return []
 
     def get_completions(self, document, complete_event):
         text_before_cursor = document.text_before_cursor
         chunks = text_before_cursor.split()
         endwithWS = re.compile(".*\s$")
-        if len(chunks) <= 1 and not endwithWS.match(text_before_cursor):
+        if len(chunks) == 0 and not endwithWS.match(text_before_cursor):
+            # complete command
             yield from self.command_completer.get_completions(document, complete_event)
+        elif len(chunks) == 1 and not endwithWS.match(text_before_cursor):
+            # cascade match (allow multiple levels of match like starts with, contains, etc.)
+            results = self.cascade_match(chunks[-1], self.commands)
+            yield from [Completion(r, start_position=-len(chunks[-1])) for r in results]
         else:
+            # complete file path
             if endwithWS.match(text_before_cursor):
                 text_to_complete = ""
             else:
@@ -626,7 +660,8 @@ class User:
     If you don't know the answer, just say that you don't know.
     Cite the exact lines from the context that supports your answer.
 
-    If you happen to know the answer outside the provided context, clearly indicate that and provide the answer.
+    If you happen to know the answer outside the provided context,
+    clearly indicate that and provide the answer.
 
     ------------------- beginning of tool descriptions -------------------
     When users ask for chat bot related commands, suggest the following:
@@ -646,6 +681,19 @@ class User:
         self.__dict__.update({k: v for k, v in locals().items() if k != "self"})
         self._reset()
 
+    def _add_hot_keys(self):
+        """add hot keys to the known actions"""
+        # get hot_keys from env
+        hot_keys_fn = os.environ.get("HOT_KEYS_FN", "")
+        if not hot_keys_fn:
+            print(colored("env var HOT_KEYS_FN not set", "red"))
+            return
+
+        hot_keys = json.load(open(hot_keys_fn, "r"))
+        for k, v in hot_keys.items():
+            if k not in self.known_actions:
+                self.known_actions[k] = v
+
     def _add_known_actions(self, cls):
         """recursively add known actions from the class"""
         for name in dir(cls):
@@ -654,6 +702,7 @@ class User:
             if callable(method) and name.startswith("_known_action_"):
                 action_name = name[len("_known_action_") :]
                 if action_name not in self.known_actions:
+                    # prefer the method in the subclass
                     self.known_actions[action_name] = functools.partial(method, self)
         for base_cls in cls.__bases__:
             self._add_known_actions(base_cls)
@@ -664,6 +713,7 @@ class User:
         can be called stating "reset" in the prompt
         """
         self.known_actions = {}
+        self._add_hot_keys()
         self._add_known_actions(self.__class__)
 
         # reset chatbot: human for debugging
@@ -701,7 +751,8 @@ class User:
         """return a string describing the available tools to the chatbot; list all tools"""
         tools = []
         for k, v in self.known_actions.items():
-            tools.append("{}: \n{}".format(k, strip_multiline(v.__doc__)))
+            description = strip_multiline(v.__doc__) if v.__doc__ else str(v)
+            tools.append("{}: \n{}".format(k, description))
         return "\n\n".join(tools)
 
     def _known_action_add_files(self, dirname):
@@ -775,7 +826,13 @@ class User:
         prev_directory = os.getcwd()
 
         try:
-            # first try known actions
+            # first try hot_keys (FIXME: directly calling user input is not secure)
+            if prompt.strip() in self.known_actions:
+                v = self.known_actions[prompt.strip()]
+                if isinstance(v, str):
+                    return run_subprocess_with_interrupt(v, check=True, shell=True)
+
+            # then try known actions
             if prompt and prompt.split()[0] in self.known_actions:
                 k = prompt.split()[0]
                 v = prompt[len(k) :].strip()
@@ -838,7 +895,9 @@ class DiaryReader(User):
     system_prompt = """
     You are given a user profile and the user's diary entries.
     You will act like you are the user and respond to questions about the user.
-    When answering questions, always indicate whether you cite from diary or profile (with dates if possible).
+    When answering questions, cite your source (with dates if possible).
+
+    Be as helpful as possible, even if the context doesn't provide the answer.
     
     Be concise unless instructed otherwise.
 
@@ -963,7 +1022,8 @@ class DocReader(User):
     If you don't know the answer, just say that you don't know.
     Cite the exact lines from the context that supports your answer.
 
-    If you happen to know the answer outside the provided context, clearly indicate that and provide the answer.
+    If you know the answer outside the provided context,
+    clearly indicate that and provide the answer.
 
     ------------------- beginning of tool descriptions -------------------
     When users ask for chat bot related commands, suggest the following:
