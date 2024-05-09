@@ -579,14 +579,15 @@ class ChatVisionBot:
         stop="<|endoftext|>",
         model="gpt-4-turbo",
         stream=True,
+        use_azure=False,
     ):
         self.model = model
         self.system = system
         self.stop = stop
-        if os.environ.get("AZURE_CHAT_API_KEY"):
+        if use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
             print(
                 colored(
-                    "Using AZURE openAI model (change terminal init file for settings)",
+                    "Using AZURE openAI model (Don't sent personal info!)",
                     "yellow",
                 )
             )
@@ -690,6 +691,7 @@ class User:
         human=False,
         show_context=False,
         fnames=set(),
+        use_azure=False,  # don't trust using azure
     ):
         # shared across Users
         self.__dict__.update({k: v for k, v in locals().items() if k != "self"})
@@ -735,7 +737,9 @@ class User:
             self.chatbot = human_llm
         else:
             self.chatbot = ChatVisionBot(
-                self._known_action_get_prompt(), model=self.model
+                self._known_action_get_prompt(),
+                model=self.model,
+                use_azure=self.use_azure,
             )
             self.known_actions["save_chat"] = self.chatbot.save_chat
 
@@ -937,11 +941,17 @@ class DiaryReader(User):
         model="gpt-4-turbo",
         human=False,
         fnames=set(),
+        use_azure=False,
     ):
         self.profile = load_doc(profile_fn)[0].page_content
         self.tone = "less serious"
         super().__init__(
-            chat=chat, model=model, human=human, show_context=False, fnames=fnames
+            chat=chat,
+            model=model,
+            human=human,
+            show_context=False,
+            fnames=fnames,
+            use_azure=use_azure,
         )
         # add diary_fn to fnames
         self._known_action_add_files(diary_fn)
@@ -1055,9 +1065,15 @@ class DocReader(User):
         model="gpt-4-turbo",
         human=False,
         fnames=set(),
+        use_azure=False,
     ):
         super().__init__(
-            chat=chat, model=model, human=human, show_context=False, fnames=fnames
+            chat=chat,
+            model=model,
+            human=human,
+            show_context=False,
+            fnames=fnames,
+            use_azure=use_azure,
         )
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
