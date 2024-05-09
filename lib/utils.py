@@ -830,6 +830,7 @@ class User:
             if prompt.strip() in self.known_actions:
                 v = self.known_actions[prompt.strip()]
                 if isinstance(v, str):
+                    print("Hot Key command:", v)
                     return run_subprocess_with_interrupt(v, check=True, shell=True)
 
             # then try known actions
