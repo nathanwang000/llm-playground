@@ -576,7 +576,6 @@ class ChatVisionBot:
     def __init__(
         self,
         system="",
-        max_tokens=1000,
         stop="<|endoftext|>",
         model="gpt-4-turbo",
         stream=True,
@@ -584,8 +583,24 @@ class ChatVisionBot:
         self.model = model
         self.system = system
         self.stop = stop
-        self.max_tokens = max_tokens
-        self.client = openai.OpenAI()
+        if os.environ.get("AZURE_CHAT_API_KEY"):
+            print(
+                colored(
+                    "Using AZURE openAI model (change terminal init file for settings)",
+                    "yellow",
+                )
+            )
+            azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
+            api_key = os.environ.get("AZURE_CHAT_API_KEY")
+            api_version = os.environ.get("AZURE_CHAT_API_VERSION")
+            self.model = os.environ.get("AZURE_CHAT_MODEL")
+            self.client = openai.AzureOpenAI(
+                azure_endpoint=azure_endpoint,
+                api_key=api_key,
+                api_version=api_version,
+            )
+        else:
+            self.client = openai.OpenAI()
         self.messages = []
         self.stream = stream
         if self.system:
@@ -639,7 +654,6 @@ class ChatVisionBot:
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=self.messages,
-            max_tokens=self.max_tokens,
             stream=self.stream,
             stop=self.stop,
         )
