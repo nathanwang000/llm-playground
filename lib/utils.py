@@ -587,7 +587,8 @@ class ChatVisionBot:
         if use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
             print(
                 colored(
-                    "Using AZURE openAI model (Don't sent personal info!)",
+                    "Using AZURE openAI model (Don't sent personal info!"
+                    " use toggle_use_azure to turn it off)",
                     "yellow",
                 )
             )
@@ -754,6 +755,13 @@ class User:
     def _known_action_show_settings(self, *args, **kwargs):
         """show the current settings of the chatbot"""
         return pprint.pformat(self.__dict__)
+
+    def _known_action_toggle_use_azure(self, *args, **kwargs) -> str:
+        """toggle using azure or not"""
+        self.use_azure = not self.use_azure
+        # need to reset so that chatbot uses the new setting
+        self._reset()
+        return f"use azure: {self.use_azure}"
 
     def _known_action_toggle_show_context(self, *args, **kwargs) -> str:
         """toggle showing the context of the question"""
