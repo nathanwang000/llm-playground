@@ -30,7 +30,12 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_community import GoogleDriveLoader
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import (
+    ChatOpenAI,
+    OpenAIEmbeddings,
+    AzureOpenAIEmbeddings,
+    AzureChatOpenAI,
+)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -85,7 +90,9 @@ def parse_time_range_from_AI_message(message: AIMessage) -> DateRange:
     return DateRange(start_dates[0], end_dates[0])
 
 
-def parse_time_range_from_query(query: str, model: str = "gpt-4-turbo") -> DateRange:
+def parse_time_range_from_query(
+    query: str, model: str = "gpt-4-turbo", use_azure=False
+) -> DateRange:
     p = ChatPromptTemplate.from_messages(
         [
             (
@@ -110,7 +117,28 @@ def parse_time_range_from_query(query: str, model: str = "gpt-4-turbo") -> DateR
         ]
     )
     today = datetime.datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
-    llm = ChatOpenAI(model_name=model)
+
+    if use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
+        print(
+            colored(
+                "Using AZURE openAI model for time parsing"
+                " (Don't sent personal info!"
+                " use toggle_use_azure to turn it off)",
+                "yellow",
+            )
+        )
+        azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
+        api_key = os.environ.get("AZURE_CHAT_API_KEY")
+        api_version = os.environ.get("AZURE_CHAT_API_VERSION")
+        model = os.environ.get("AZURE_CHAT_MODEL")
+        llm = AzureChatOpenAI(
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=azure_endpoint,
+            model_name=model,
+        )
+    else:
+        llm = ChatOpenAI(model_name=model)
     chain = p | llm | parse_time_range_from_AI_message
 
     result = chain.invoke({"query": query, "today": today})
@@ -584,10 +612,13 @@ class ChatVisionBot:
         self.model = model
         self.system = system
         self.stop = stop
-        if use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
+        self.use_azure = use_azure
+
+        if self.use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
             print(
                 colored(
-                    "Using AZURE openAI model (Don't sent personal info!"
+                    "Using AZURE openAI model for chat "
+                    "(Don't sent personal info!"
                     " use toggle_use_azure to turn it off)",
                     "yellow",
                 )
@@ -893,7 +924,10 @@ class User:
         except Exception as e:
             print(EXCEPTION_PROMPT, e, colored("asking llm", "yellow"))
 
-            context = chat_eval(self.get_context)(prompt)
+            context = chat_eval(
+                self.get_context,
+                use_azure=self.use_azure,
+            )(prompt)
             if not context:
                 print(EXCEPTION_PROMPT, "no context found")
             prompt = f"Context: {context}\n\nQuestion: {prompt}"
@@ -1032,7 +1066,7 @@ class DiaryReader(User):
                 return diary
 
             s_date, e_date = parse_time_range_from_query(
-                question
+                question, use_azure=self.use_azure
             )  # fixme: maybe use self.model, but gpt3.5 doesn't work good enough
             # test if each entry is relevant to the time in the question
             entries = [e for e in entries if s_date <= e["date"] <= e_date]
@@ -1157,7 +1191,29 @@ class DocReader(User):
             )
         )
         store = LocalFileStore("./cache/")
-        underlying_embeddings = OpenAIEmbeddings()
+
+        # get client: TODO refactor
+        if self.use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
+            print(
+                colored(
+                    "Using AZURE openAI model for embedding"
+                    " (Don't sent personal info!"
+                    " use toggle_use_azure to turn it off)",
+                    "yellow",
+                )
+            )
+            azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
+            api_key = os.environ.get("AZURE_CHAT_API_KEY")
+            api_version = os.environ.get("AZURE_CHAT_API_VERSION")
+            underlying_embeddings = AzureOpenAIEmbeddings(
+                api_key=api_key,
+                api_version=api_version,
+                azure_endpoint=azure_endpoint,
+                model="text-embedding-ada-002",
+            )
+        else:
+            underlying_embeddings = OpenAIEmbeddings()
+
         cached_embedder = CacheBackedEmbeddings.from_bytes_store(
             underlying_embeddings, store, namespace=underlying_embeddings.model
         )

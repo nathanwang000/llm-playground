@@ -31,14 +31,12 @@ TODO: the generalization of EdgeEval is ChatEval
 import functools
 import inspect
 import os
-import sys
 import re
 from typing import Callable
 
 from langchain_core.messages import AIMessage
-from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, AzureChatOpenAI
 import numpy as np
 from termcolor import colored
 from const import EXCEPTION_PROMPT
@@ -88,6 +86,7 @@ def check_relevance(
     answer: str,
     ai_mode: bool = False,
     model: str = "gpt-3.5-turbo",
+    use_azure: bool = False,
 ):
     """
     Check the relevance of the answer to the question given the function f
@@ -98,6 +97,7 @@ def check_relevance(
     - answer: output of f
     - ai_mode: whether to use AI to evaluate the relevance
     - model: the AI model to use if ai_mode is True
+    - use_azure: whether to use Azure OpenAI
 
     Returns:
     - score: float between 0 and 1
@@ -135,7 +135,29 @@ def check_relevance(
     )  # use .pretty_print() to show prompt
 
     # human for debug
-    llm = ChatOpenAI(model_name=model) if ai_mode else human
+    if not ai_mode:
+        llm = human
+    elif use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
+        print(
+            colored(
+                "Using AZURE openAI model for checking relevance."
+                " (Don't sent personal info!"
+                " use toggle_use_azure to turn it off)",
+                "yellow",
+            )
+        )
+        azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
+        api_key = os.environ.get("AZURE_CHAT_API_KEY")
+        api_version = os.environ.get("AZURE_CHAT_API_VERSION")
+        model = os.environ.get("AZURE_CHAT_MODEL")
+        llm = AzureChatOpenAI(
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=azure_endpoint,
+            model_name=model,
+        )
+    else:
+        llm = ChatOpenAI(model_name=model)
 
     chain = p | llm | parse_relevance_output
     return chain.invoke(
@@ -152,7 +174,7 @@ if __name__ == "__main__":
     print(check_relevance(test_f, "some string", "some other string", ai_mode=True))
 
 
-def chat_eval(f):
+def chat_eval(f, use_azure=False):
     """
     Decorator for chat evaluation
     """
@@ -165,7 +187,13 @@ def chat_eval(f):
         # TODO: check output
         # check relevance | input, output
         print(colored(f"checking relevance of {f.__name__}", "yellow"))
-        rel = check_relevance(f, question, answer, ai_mode=True)
+        rel = check_relevance(
+            f,
+            question,
+            answer,
+            ai_mode=True,
+            use_azure=use_azure,
+        )
         if rel["score"] < 0.5:
             print(
                 EXCEPTION_PROMPT,
