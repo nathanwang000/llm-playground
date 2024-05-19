@@ -783,6 +783,12 @@ class User:
             "_known_action_welcome method not implemented, should be implemented in the subclass"
         )
 
+    def _known_action_set_model(self, model):
+        """set the model of the current chatbot"""
+        self.model = model
+        self._reset()
+        return f"set model to {model}"
+
     def _known_action_show_settings(self, *args, **kwargs):
         """show the current settings of the chatbot"""
         return pprint.pformat(self.__dict__)
