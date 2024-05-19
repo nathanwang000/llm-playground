@@ -719,7 +719,7 @@ class User:
     def __init__(
         self,
         chat=False,
-        model="gpt-4-turbo",
+        model="gpt-4o",
         human=False,
         show_context=False,
         fnames=set(),
