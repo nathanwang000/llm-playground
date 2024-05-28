@@ -1030,14 +1030,14 @@ class DiaryReader(User):
                 "- learn a new emacs (c-h r) or python trick",
                 "- update cheatsheet about me: https://shorturl.at/ltwKW",
                 "- my work items are in https://shorturl.at/HLP59",
+                "- go out for a walk and not dwell on unchangeable event",
             ]
         )
         user_prompt = "\n".join(
             [
                 colored("You may wanna ask:\n", "green"),
                 "- what should I learn next?",
-                "- improvement from last week?",
-                "- things to work on to better physical and mental health?",
+                "- how to improve from last week?",
             ]
         )
         return f"{message}\n{inspire}\n\n{quote}\n{reminder}\n\n{user_prompt}\n"
