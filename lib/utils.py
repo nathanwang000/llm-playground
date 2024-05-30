@@ -322,11 +322,10 @@ def print_openai_stream(ans):
         try:
             chunk_message = chunk.choices[0].delta.content
         except Exception as e:
-            try:
-                chunk_message = chunk.choices[0].messages[0]["delta"][
-                    "content"
-                ]  # for azure
-            except:
+            m = chunk.choices[0].messages
+            if len(m) and "delta" in m[0] and "content" in m[0]["delta"]:
+                chunk_message = m[0]["delta"]["content"]  # for azure
+            else:
                 continue
         if chunk_message is not None:
             collected_messages.append(chunk_message)  # save the message
