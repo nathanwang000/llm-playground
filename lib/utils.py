@@ -5,6 +5,7 @@ import functools
 import glob
 import json
 import logging
+import base64
 import os
 import pprint
 import re
@@ -22,9 +23,11 @@ from const import EXCEPTION_PROMPT
 from evaluation import chat_eval
 
 # for caching see https://shorturl.at/tHTV4
+from mimetypes import guess_type
 from langchain.embeddings import CacheBackedEmbeddings
 from langchain.storage import LocalFileStore
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
@@ -187,14 +190,33 @@ def parse_diary_entries(diary_txt) -> List[dict]:
 
 
 # Function to encode the image
-def encode_image_path(image_path):
+def encode_image_path_openai(image_path: str) -> str:
     if image_path.startswith("http"):
         return image_path
-    import base64
 
     with open(image_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
     return f"data:image/jpeg;base64,{base64_image}"
+
+
+def encode_image_path_azure(image_path: str) -> str:
+    # Guess the MIME type of the image based on the file extension
+    mime_type, _ = guess_type(image_path)
+    if mime_type is None:
+        mime_type = "application/octet-stream"  # Default MIME type if none is found
+    # Read and encode the image file
+    with open(image_path, "rb") as image_file:
+        base64_encoded_data = base64.b64encode(image_file.read()).decode("utf-8")
+        # Construct the data URL
+        return f"data:{mime_type};base64,{base64_encoded_data}"
+
+
+def encode_image_path(image_path: str, use_azure: bool = False) -> str:
+    print("encoding image base64 use_azure", use_azure)
+    if use_azure:
+        return encode_image_path_azure(image_path)
+    else:
+        return encode_image_path_openai(image_path)
 
 
 # Function to run subprocess
@@ -304,7 +326,7 @@ def get_input_prompt_session(color="ansired"):
 
 
 # Function to print the stream
-def print_openai_stream(ans):
+def print_openai_stream(ans) -> str:
     # from https://cookbook.openai.com/examples/how_to_stream_completions
     if type(ans) is not openai.Stream:
         custom_print(ans)
@@ -332,9 +354,10 @@ def print_openai_stream(ans):
             print(chunk_message, end="", flush=True)
         # print(f"Message received {chunk_time:.2f} seconds after request: {chunk_message}")  # print the delay and text
     print()
+    return "".join(collected_messages)
 
 
-def print_langchain_stream(ans):
+def print_langchain_stream(ans) -> str:
     # from https://python.langchain.com/docs/use_cases/question_answering/streaming/
     output = {}  # for dict chunk
     curr_key = None
@@ -355,6 +378,7 @@ def print_langchain_stream(ans):
         else:
             print(chunk, end="", flush=True)
     print()
+    return str(output)
 
 
 def custom_print(d):
@@ -412,7 +436,7 @@ def repl(
 
 # Function to load the document
 @functools.cache
-def load_doc(fname, in_memory_load=True) -> List[Document]:
+def load_doc(fname, use_azure, in_memory_load=True) -> List[Document]:
     """
     load the document from the file
     # TODO: change naive load to using lazy load to save memory
@@ -449,6 +473,25 @@ def load_doc(fname, in_memory_load=True) -> List[Document]:
             loader = PyPDFLoader(fname)
         elif ext in ["txt", "md", "org"]:
             loader = TextLoader(fname)
+        elif ext in ["jpeg", "png", "jpg"]:
+            os.system("mkdir -p image_descs")
+            img_name = os.path.basename(fname).split(".")[0]
+            output_fname = f"image_descs/{img_name}.md"
+            if not os.path.exists(output_fname):
+                bot = ChatVisionBot(stream=True, use_azure=use_azure)
+                print(colored(f"Desc of {fname} as ctxt:", "yellow"))
+                # image_desc = bot("describe the image", [fname])
+                image_desc = print_openai_stream(
+                    bot(
+                        "describe the given image in detail: if the image has structure, format it as markdown",
+                        [fname],
+                    )
+                )
+                print(f"writing to {output_fname}")
+                with open(output_fname, "w") as f:
+                    f.write(image_desc)
+
+            loader = UnstructuredMarkdownLoader(output_fname)
         else:
             raise ValueError(f"unsupported file extension {ext}")
 
@@ -516,13 +559,15 @@ def read_from_dir(dirname, allowed_extensions=["pdf", "md", "txt", "org"]) -> Li
 
 
 @functools.cache
-def load_split_doc(fname: str, chunk_size: int, chunk_overlap: int) -> List[Document]:
+def load_split_doc(
+    fname: str, use_azure: bool, chunk_size: int, chunk_overlap: int
+) -> List[Document]:
     """
     load documents, split the text using recursive character text splitter
     TODO: add document level cache using document changed time and the arguments (save the result to disk)
     """
     print("loading", fname)
-    doc = load_doc(fname)
+    doc = load_doc(fname, use_azure=use_azure)
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=chunk_overlap, add_start_index=True
     )
@@ -683,7 +728,10 @@ class ChatVisionBot:
                         "text": message,
                     },
                     *[
-                        {"type": "image_url", "image_url": encode_image_path(image_url)}
+                        {
+                            "type": "image_url",
+                            "image_url": encode_image_path(image_url, self.use_azure),
+                        }
                         for image_url in images
                     ],
                 ],
@@ -1023,7 +1071,7 @@ class DiaryReader(User):
         fnames=set(),
         use_azure=False,
     ):
-        self.profile = load_doc(profile_fn)[0].page_content
+        self.profile = load_doc(profile_fn, use_azure=use_azure)[0].page_content
         self.tone = "less serious"
         super().__init__(
             chat=chat,
@@ -1086,7 +1134,14 @@ class DiaryReader(User):
         diary = format_docs(
             list(
                 flatten(
-                    smap(functools.partial(load_doc, in_memory_load=True), self.fnames)
+                    smap(
+                        functools.partial(
+                            load_doc,
+                            use_azure=self.use_azure,
+                            in_memory_load=True,
+                        ),
+                        self.fnames,
+                    )
                 )
             )
         )
@@ -1221,6 +1276,7 @@ class DocReader(User):
                 smap(
                     functools.partial(
                         load_split_doc,
+                        use_azure=self.use_azure,
                         chunk_size=self.chunk_size,
                         chunk_overlap=self.chunk_overlap,
                     ),
