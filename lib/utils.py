@@ -316,7 +316,18 @@ def print_openai_stream(ans):
     for chunk in ans:
         # chunk_time = time.time() - start_time
         collected_chunks.append(chunk)  # save the event response
-        chunk_message = chunk.choices[0].delta.content  # extract the message
+        # extract the message
+        if not len(chunk.choices):
+            continue
+        try:
+            chunk_message = chunk.choices[0].delta.content
+        except Exception as e:
+            try:
+                chunk_message = chunk.choices[0].messages[0]["delta"][
+                    "content"
+                ]  # for azure
+            except:
+                continue
         if chunk_message is not None:
             collected_messages.append(chunk_message)  # save the message
             print(chunk_message, end="", flush=True)
@@ -608,13 +619,15 @@ class ChatVisionBot:
         model="gpt-4-turbo",
         stream=True,
         use_azure=False,
+        max_tokens=3000,
     ):
         self.model = model
         self.system = system
         self.stop = stop
         self.use_azure = use_azure
+        self.max_tokens = max_tokens
 
-        if self.use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
+        if self.use_azure and os.environ.get("AZURE_VISION_API_KEY"):
             print(
                 colored(
                     "Using AZURE openAI model for chat "
@@ -623,15 +636,34 @@ class ChatVisionBot:
                     "yellow",
                 )
             )
-            azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
-            api_key = os.environ.get("AZURE_CHAT_API_KEY")
-            api_version = os.environ.get("AZURE_CHAT_API_VERSION")
-            self.model = os.environ.get("AZURE_CHAT_MODEL")
-            self.client = openai.AzureOpenAI(
-                azure_endpoint=azure_endpoint,
-                api_key=api_key,
-                api_version=api_version,
-            )
+
+            use_vision = True
+            if use_vision:
+                proxies = {
+                    "http": "",
+                    "https": "",
+                }
+                openai.proxy = proxies
+                api_base = os.environ.get("AZURE_VISION_API_BASE")
+                api_key = os.environ.get("AZURE_VISION_API_KEY")
+                deployment_name = os.environ.get("AZURE_VISION_DEPLOYMENT_NAME")
+                api_version = os.environ.get("AZURE_VISION_API_VERSION")
+
+                self.client = openai.AzureOpenAI(
+                    api_key=api_key,
+                    api_version=api_version,
+                    base_url=f"{api_base}openai/deployments/{deployment_name}/extensions",
+                )
+            else:  # text chat only model
+                azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
+                api_key = os.environ.get("AZURE_CHAT_API_KEY")
+                api_version = os.environ.get("AZURE_CHAT_API_VERSION")
+                self.model = os.environ.get("AZURE_CHAT_MODEL")
+                self.client = openai.AzureOpenAI(
+                    azure_endpoint=azure_endpoint,
+                    api_key=api_key,
+                    api_version=api_version,
+                )
         else:
             self.client = openai.OpenAI()
         self.messages = []
@@ -689,6 +721,7 @@ class ChatVisionBot:
             messages=self.messages,
             stream=self.stream,
             stop=self.stop,
+            max_tokens=self.max_tokens,
         )
         if self.stream:
             return completion
