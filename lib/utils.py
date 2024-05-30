@@ -449,8 +449,10 @@ def load_doc(fname, use_azure, in_memory_load=True) -> List[Document]:
         ext = fname.split(".")[-1]
         if ext == "pdf":
             loader = PyPDFLoader(fname)
-        elif ext in ["txt", "md", "org"]:
+        elif ext in ["txt", "org"]:
             loader = TextLoader(fname)
+        elif ext in ["md"]:
+            loader = UnstructuredMarkdownLoader(fname)
         elif ext in ["jpeg", "png", "jpg"]:
             os.system("mkdir -p image_descs")
             img_name = os.path.basename(fname).split(".")[0]
@@ -520,19 +522,37 @@ def smap(f, inputs):
     return list(tqdm.tqdm(map(f, inputs), total=len(inputs)))
 
 
-def read_from_dir(dirname, allowed_extensions=["pdf", "md", "txt", "org"]) -> List[str]:
+def read_from_dir(
+    dirname,
+    allowed_extensions=[
+        "pdf",
+        "md",
+        "txt",
+        "org",
+        "png",
+        "jpg",
+        "jpeg",
+    ],
+) -> List[str]:
     """
-    reucrusively read all files in the directory, if the directory is a file, return the file
+    reucrusively read all files in the directory, if the directory is a file, return the file(s)
     """
-    if os.path.isfile(dirname):
-        return [dirname]
-
     fnames = []
-    for fn in glob.glob(dirname + "/*"):
-        if os.path.isdir(fn):
-            fnames.extend(read_from_dir(fn))
-        elif fn.split(".")[-1] in allowed_extensions:
-            fnames.append(fn)
+    if os.path.isfile(dirname):
+        print(f"treat {dirname} as a file")
+        fnames = [dirname]
+    elif os.path.isdir(dirname):
+        print(f"treat {dirname} as a dir")
+        for fn in glob.glob(dirname + "/*"):
+            if os.path.isdir(fn):
+                fnames.extend(read_from_dir(fn))
+            elif fn.split(".")[-1] in allowed_extensions:
+                fnames.append(fn)
+    else:  # treat it as glob pattern
+        print(f"treat {dirname} as a pattern")
+        for fn in glob.glob(dirname):
+            if fn.split(".")[-1] in allowed_extensions:
+                fnames.append(fn)
     return fnames
 
 
@@ -885,7 +905,8 @@ class User:
             self.fnames.add(dirname)
             return self._known_action_ls_ctx_files()
 
-        dirname = os.path.expanduser(dirname)
+        # expand user as well as escape back whitespace
+        dirname = os.path.expanduser(dirname).replace("\ ", " ")
         fnames = read_from_dir(dirname)
         print("found", len(fnames), "files in", dirname)
         print(fnames)
