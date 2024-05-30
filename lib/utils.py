@@ -190,33 +190,11 @@ def parse_diary_entries(diary_txt) -> List[dict]:
 
 
 # Function to encode the image
-def encode_image_path_openai(image_path: str) -> str:
-    if image_path.startswith("http"):
-        return image_path
-
+def encode_image_path(image_path):
+    """from official openai"""
     with open(image_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
-    return f"data:image/jpeg;base64,{base64_image}"
-
-
-def encode_image_path_azure(image_path: str) -> str:
-    # Guess the MIME type of the image based on the file extension
-    mime_type, _ = guess_type(image_path)
-    if mime_type is None:
-        mime_type = "application/octet-stream"  # Default MIME type if none is found
-    # Read and encode the image file
-    with open(image_path, "rb") as image_file:
-        base64_encoded_data = base64.b64encode(image_file.read()).decode("utf-8")
-        # Construct the data URL
-        return f"data:{mime_type};base64,{base64_encoded_data}"
-
-
-def encode_image_path(image_path: str, use_azure: bool = False) -> str:
-    print("encoding image base64 use_azure", use_azure)
-    if use_azure:
-        return encode_image_path_azure(image_path)
-    else:
-        return encode_image_path_openai(image_path)
+        return f"data:image/jpeg;base64,{base64_image}"
 
 
 # Function to run subprocess
@@ -660,7 +638,7 @@ class ChatVisionBot:
         self,
         system="",
         stop="<|endoftext|>",
-        model="gpt-4-turbo",
+        model="gpt-4o",
         stream=True,
         use_azure=False,
         max_tokens=3000,
@@ -730,7 +708,9 @@ class ChatVisionBot:
                     *[
                         {
                             "type": "image_url",
-                            "image_url": encode_image_path(image_url, self.use_azure),
+                            "image_url": {
+                                "url": encode_image_path(image_url),
+                            },
                         }
                         for image_url in images
                     ],
