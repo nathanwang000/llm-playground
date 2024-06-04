@@ -4,6 +4,7 @@ import base64
 import datetime
 import functools
 import glob
+import yaml
 import json
 import logging
 import os
@@ -220,7 +221,7 @@ def parse_time_range_from_query(
             colored(
                 "Using AZURE openAI model for time parsing"
                 " (Don't sent personal info!"
-                " use toggle_use_azure to turn it off)",
+                " use toggle_settings config.use_azure to turn it off)",
                 "yellow",
             )
         )
@@ -764,7 +765,7 @@ class ChatVisionBot:
                 colored(
                     "Using AZURE openAI model for chat "
                     "(Don't sent personal info!"
-                    " use toggle_use_azure to turn it off)",
+                    " use toggle_settings use_azure to turn it off)",
                     "yellow",
                 )
             )
@@ -964,7 +965,7 @@ class User:
 
     def _known_action_set_model(self, model):
         """set the model of the current chatbot"""
-        self.model = model
+        self.config.model = model
         self._reset()
         return f"set model to {model}"
 
@@ -1001,9 +1002,16 @@ class User:
         self._reset()
         return f"setting {setting_name} from {obj}->{not obj}"
 
+    def _known_action_change_user_config_yaml(self, fname):
+        """change self.config to point to fname"""
+        self.config = UserConfig(**yaml.safe_load(open(fname)))
+        self._reset()
+
     def _known_action_show_settings(self, *args, **kwargs):
         """show the current settings of the chatbot"""
-        return pprint.pformat(self.__dict__)
+        return pprint.pformat(
+            {k: v for k, v in self.__dict__.items() if k != "known_actions"}
+        )
 
     def _known_action_get_prompt(self, *args, **kwargs):
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
@@ -1396,7 +1404,7 @@ class DocReader(User):
                 colored(
                     "Using AZURE openAI model for embedding"
                     " (Don't sent personal info!"
-                    " use toggle_use_azure to turn it off)",
+                    " use toggle_settings use_azure to turn it off)",
                     "yellow",
                 )
             )
