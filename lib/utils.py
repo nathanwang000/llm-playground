@@ -16,6 +16,7 @@ from collections import namedtuple
 from collections.abc import Mapping
 from operator import itemgetter
 from typing import List
+from pdf2image import convert_from_path
 
 import openai
 import tqdm
@@ -62,6 +63,95 @@ DateRange = namedtuple("DateRange", ["start", "end"])
 DateRange.__repr__ = (
     lambda x: f'{x.start.strftime("%m/%d/%Y")} - {x.end.strftime("%m/%d/%Y")}'
 )
+
+
+def info(message):
+    return colored(message, "cyan")
+
+
+def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md") -> str:
+    """
+    Convert a PDF file to a markdown string using gpt4o
+    flow: pdf->png->md (img_desc)
+
+    Args:
+      fn: PDF file name
+      output_dir: Directory to save the output markdown file (irrelevant for vlm)
+      verbose: Whether to show extracted images
+
+    Returns:
+      md text
+
+    # >>> pdf2md_vlm('../docs/SMI-hypertension-bundle-emergency-checklist.pdf')
+    # >>> pdf2md_vlm('../debug_docs/1.pdf')
+    # >>> pdf2md_vlm('../debug_docs/2.pdf')
+    # >>> pdf2md_vlm('../debug_docs/3.pdf')
+    """
+    # Get the file name without extension
+    filename = os.path.splitext(os.path.basename(fn))[0]
+    images = convert_from_path(fn)
+    md_txts = []
+
+    print(output_dir)
+    os.system(f"mkdir -p {output_dir}")
+    combined_md_file_path = f"{output_dir}/{filename}.md"
+    if os.path.exists(combined_md_file_path):  # caching
+        return combined_md_file_path
+
+    for i, image in enumerate(images):
+        md_file_path = f"{output_dir}/{filename}_page{i}.md"
+        if os.path.exists(md_file_path):
+            print(f"skipping {md_file_path} as it already exists")
+            md_txts.append(open(md_file_path).read())
+            continue
+
+        png_file_path = f"{output_dir}/{filename}_page{i}.png"
+        image.save(png_file_path, "PNG")
+        print(info(f"processing page {i+1}/{len(images)}"))
+        print(image)
+        bot = ChatVisionBot(
+            "transcribe the image as markdown, keeping the structure of the document (e.g., heading and titles); Be sure to describe figures or visuals or embedded images in the format of '![<desc>](fake_url)'; The entire output will be interpreted as markdown, so don't wrap the output in ```markdown``` delimeter",
+        )
+
+        md_txt = print_openai_stream(
+            bot(
+                "",
+                [os.path.expanduser(png_file_path)],
+            )
+        )
+
+        md_txts.append(md_txt)
+        # save intermediate md files
+        with open(md_file_path, "w") as f:
+            f.write(md_txt)
+
+    with open(combined_md_file_path, "w") as f:
+        f.write("\n----\n".join(md_txts))
+
+    return combined_md_file_path
+
+
+def image2md(image_path, use_azure=False):
+    """
+    return a md file saved
+    """
+    os.system("mkdir -p image_descs")
+    img_name = os.path.basename(image_path).split(".")[0]
+    output_fname = f"image_descs/{img_name}.md"
+    if not os.path.exists(output_fname):
+        bot = ChatVisionBot(stream=True, use_azure=use_azure)
+        print(colored(f"Desc of {image_path} as ctxt:", "yellow"))
+        image_desc = print_openai_stream(
+            bot(
+                "describe the given image in detail: if the image has structure, format it as markdown",
+                [image_path],
+            )
+        )
+        print(f"writing to {output_fname}")
+        with open(output_fname, "w") as f:
+            f.write(image_desc)
+
+    return output_fname
 
 
 def parse_time_range_from_AI_message(message: AIMessage) -> DateRange:
@@ -414,9 +504,14 @@ def repl(
 
 # Function to load the document
 @functools.cache
-def load_doc(fname, use_azure, in_memory_load=True) -> List[Document]:
+def load_doc(
+    fname, use_azure, in_memory_load=True, convert_pdf2md=False
+) -> List[Document]:
     """
     load the document from the file
+
+    convert_pdf2md: bool indicating whether to convert pdf to md for better parsing
+
     # TODO: change naive load to using lazy load to save memory
     # https://python.langchain.com/docs/modules/data_connection/document_loaders/custom/
     """
@@ -448,29 +543,16 @@ def load_doc(fname, use_azure, in_memory_load=True) -> List[Document]:
     else:
         ext = fname.split(".")[-1]
         if ext == "pdf":
-            loader = PyPDFLoader(fname)
+            if convert_pdf2md:
+                loader = UnstructuredMarkdownLoader(pdf2md_vlm(fname))
+            else:
+                loader = PyPDFLoader(fname)
         elif ext in ["txt", "org"]:
             loader = TextLoader(fname)
         elif ext in ["md"]:
             loader = UnstructuredMarkdownLoader(fname)
         elif ext in ["jpeg", "png", "jpg"]:
-            os.system("mkdir -p image_descs")
-            img_name = os.path.basename(fname).split(".")[0]
-            output_fname = f"image_descs/{img_name}.md"
-            if not os.path.exists(output_fname):
-                bot = ChatVisionBot(stream=True, use_azure=use_azure)
-                print(colored(f"Desc of {fname} as ctxt:", "yellow"))
-                # image_desc = bot("describe the image", [fname])
-                image_desc = print_openai_stream(
-                    bot(
-                        "describe the given image in detail: if the image has structure, format it as markdown",
-                        [fname],
-                    )
-                )
-                print(f"writing to {output_fname}")
-                with open(output_fname, "w") as f:
-                    f.write(image_desc)
-
+            output_fname = image2md(fname, use_azure=use_azure)
             loader = UnstructuredMarkdownLoader(output_fname)
         else:
             raise ValueError(f"unsupported file extension {ext}")
@@ -558,14 +640,18 @@ def read_from_dir(
 
 @functools.cache
 def load_split_doc(
-    fname: str, use_azure: bool, chunk_size: int, chunk_overlap: int
+    fname: str,
+    use_azure: bool,
+    chunk_size: int,
+    chunk_overlap: int,
+    convert_pdf2md: bool,
 ) -> List[Document]:
     """
     load documents, split the text using recursive character text splitter
     TODO: add document level cache using document changed time and the arguments (save the result to disk)
     """
     print("loading", fname)
-    doc = load_doc(fname, use_azure=use_azure)
+    doc = load_doc(fname, use_azure=use_azure, convert_pdf2md=convert_pdf2md)
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=chunk_overlap, add_start_index=True
     )
@@ -804,6 +890,7 @@ class User:
         show_context=False,
         fnames=set(),
         use_azure=False,  # don't trust using azure
+        convert_pdf2md=False,
     ):
         # shared across Users
         self.__dict__.update({k: v for k, v in locals().items() if k != "self"})
@@ -868,6 +955,19 @@ class User:
         self.model = model
         self._reset()
         return f"set model to {model}"
+
+    def _known_action_toggle_settings(self, setting_name):
+        """toggle the setting value"""
+        old_value = getattr(self, setting_name, None)
+        if not isinstance(old_value, bool):
+            print(
+                EXCEPTION_PROMPT,
+                f"{setting_name} not exist or not bool, its value is {old_value}",
+            )
+            return
+        setattr(self, setting_name, not old_value)
+        self._reset()
+        return f"setting {setting_name} from {old_value}->{not old_value}"
 
     def _known_action_show_settings(self, *args, **kwargs):
         """show the current settings of the chatbot"""
@@ -1071,8 +1171,11 @@ class DiaryReader(User):
         human=False,
         fnames=set(),
         use_azure=False,
+        convert_pdf2md=False,
     ):
-        self.profile = load_doc(profile_fn, use_azure=use_azure)[0].page_content
+        self.profile = load_doc(
+            profile_fn, use_azure=use_azure, convert_pdf2md=convert_pdf2md
+        )[0].page_content
         self.tone = "less serious"
         super().__init__(
             chat=chat,
@@ -1081,6 +1184,7 @@ class DiaryReader(User):
             show_context=False,
             fnames=fnames,
             use_azure=use_azure,
+            convert_pdf2md=convert_pdf2md,
         )
         # add diary_fn to fnames
         self._known_action_add_files(diary_fn)
@@ -1140,6 +1244,7 @@ class DiaryReader(User):
                             load_doc,
                             use_azure=self.use_azure,
                             in_memory_load=True,
+                            convert_pdf2md=self.convert_pdf2md,
                         ),
                         self.fnames,
                     )
@@ -1202,6 +1307,7 @@ class DocReader(User):
         human=False,
         fnames=set(),
         use_azure=False,
+        convert_pdf2md=False,
     ):
         super().__init__(
             chat=chat,
@@ -1210,6 +1316,7 @@ class DocReader(User):
             show_context=False,
             fnames=fnames,
             use_azure=use_azure,
+            convert_pdf2md=convert_pdf2md,
         )
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -1280,6 +1387,7 @@ class DocReader(User):
                         use_azure=self.use_azure,
                         chunk_size=self.chunk_size,
                         chunk_overlap=self.chunk_overlap,
+                        convert_pdf2md=self.convert_pdf2md,
                     ),
                     self.fnames,
                 )
