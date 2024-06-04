@@ -1,11 +1,11 @@
 # import time
 # import sys
+import base64
 import datetime
 import functools
 import glob
 import json
 import logging
-import base64
 import os
 import pprint
 import re
@@ -16,7 +16,6 @@ from collections import namedtuple
 from collections.abc import Mapping
 from operator import itemgetter
 from typing import List
-from pdf2image import convert_from_path
 
 import openai
 import tqdm
@@ -24,23 +23,26 @@ from const import EXCEPTION_PROMPT
 from evaluation import chat_eval
 
 # for caching see https://shorturl.at/tHTV4
-from mimetypes import guess_type
 from langchain.embeddings import CacheBackedEmbeddings
 from langchain.storage import LocalFileStore
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_community.document_loaders import UnstructuredMarkdownLoader
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+    TextLoader,
+    UnstructuredMarkdownLoader,
+)
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_community import GoogleDriveLoader
 from langchain_openai import (
+    AzureChatOpenAI,
+    AzureOpenAIEmbeddings,
     ChatOpenAI,
     OpenAIEmbeddings,
-    AzureOpenAIEmbeddings,
-    AzureChatOpenAI,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pdf2image import convert_from_path
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion, WordCompleter
@@ -411,7 +413,7 @@ def print_openai_stream(ans) -> str:
             continue
         try:
             chunk_message = chunk.choices[0].delta.content
-        except Exception as e:
+        except Exception:
             m = chunk.choices[0].messages
             if len(m) and "delta" in m[0] and "content" in m[0]["delta"]:
                 chunk_message = m[0]["delta"]["content"]  # for azure
