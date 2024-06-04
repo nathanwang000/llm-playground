@@ -14,8 +14,10 @@ import subprocess
 import tempfile
 from collections import namedtuple
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from operator import itemgetter
 from typing import List
+
 
 import openai
 import tqdm
@@ -94,10 +96,10 @@ def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md") -> str:
     images = convert_from_path(fn)
     md_txts = []
 
-    print(output_dir)
     os.system(f"mkdir -p {output_dir}")
     combined_md_file_path = f"{output_dir}/{filename}.md"
     if os.path.exists(combined_md_file_path):  # caching
+        print(f"skipping creating {combined_md_file_path} as it already exists")
         return combined_md_file_path
 
     for i, image in enumerate(images):
@@ -868,6 +870,20 @@ class ChatVisionBot:
 
 
 #### users of llm
+@dataclass
+class UserConfig:
+    chat: bool = False
+    model: str = "gpt-4o"
+    # debug asking human
+    human: bool = False
+    show_context: bool = False
+    fnames: set = field(default_factory=lambda: set())
+    # use azure api
+    use_azure: bool = False
+    # convert pdf to md
+    convert_pdf2md: bool = False
+
+
 class User:
     system_prompt = """
     You are an assistant for question-answering tasks. 
@@ -886,13 +902,7 @@ class User:
 
     def __init__(
         self,
-        chat=False,
-        model="gpt-4o",
-        human=False,
-        show_context=False,
-        fnames=set(),
-        use_azure=False,  # don't trust using azure
-        convert_pdf2md=False,
+        config: UserConfig = UserConfig(),
     ):
         # shared across Users
         self.__dict__.update({k: v for k, v in locals().items() if k != "self"})
@@ -934,13 +944,13 @@ class User:
         self._add_known_actions(self.__class__)
 
         # reset chatbot: human for debugging
-        if self.human:
+        if self.config.human:
             self.chatbot = human_llm
         else:
             self.chatbot = ChatVisionBot(
                 self._known_action_get_prompt(),
-                model=self.model,
-                use_azure=self.use_azure,
+                model=self.config.model,
+                use_azure=self.config.use_azure,
             )
             self.known_actions["save_chat"] = self.chatbot.save_chat
 
@@ -959,33 +969,41 @@ class User:
         return f"set model to {model}"
 
     def _known_action_toggle_settings(self, setting_name):
-        """toggle the setting value"""
-        old_value = getattr(self, setting_name, None)
-        if not isinstance(old_value, bool):
+        """
+        toggle the setting value, allows setting nested values (separated by '.')
+
+        >>> user = User()
+        >>> user.config.use_azure = False
+        >>> user._known_action_toggle_settings('config.use_azure')
+        'setting config.use_azure from False->True'
+        """
+        last_name = None
+        parent = None
+        obj = self
+        for name in setting_name.split("."):
+            parent = obj
+            last_name = name
+            obj = getattr(obj, name, None)
+            if obj is None:
+                print(
+                    EXCEPTION_PROMPT,
+                    f"{setting_name} does not exist",
+                )
+                return
+
+        if not isinstance(obj, bool):
             print(
                 EXCEPTION_PROMPT,
-                f"{setting_name} not exist or not bool, its value is {old_value}",
+                f"{setting_name} is not bool, its value is {obj}",
             )
             return
-        setattr(self, setting_name, not old_value)
+        setattr(parent, last_name, not obj)
         self._reset()
-        return f"setting {setting_name} from {old_value}->{not old_value}"
+        return f"setting {setting_name} from {obj}->{not obj}"
 
     def _known_action_show_settings(self, *args, **kwargs):
         """show the current settings of the chatbot"""
         return pprint.pformat(self.__dict__)
-
-    def _known_action_toggle_use_azure(self, *args, **kwargs) -> str:
-        """toggle using azure or not"""
-        self.use_azure = not self.use_azure
-        # need to reset so that chatbot uses the new setting
-        self._reset()
-        return f"use azure: {self.use_azure}"
-
-    def _known_action_toggle_show_context(self, *args, **kwargs) -> str:
-        """toggle showing the context of the question"""
-        self.show_context = not self.show_context
-        return f"showing context: {self.show_context}"
 
     def _known_action_get_prompt(self, *args, **kwargs):
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
@@ -1012,7 +1030,7 @@ class User:
         fnames = read_from_dir(dirname)
         print("found", len(fnames), "files in", dirname)
         print(fnames)
-        self.fnames.update(fnames)
+        self.config.fnames.update(fnames)
         return self._known_action_ls_ctx_files()
 
     def _known_action_rm_files(self, pattern):
@@ -1022,7 +1040,7 @@ class User:
 
         doctest
         >>> user = User()
-        >>> user.fnames = {"file1.txt", "file2.txt", "file3.txt"}
+        >>> user.config.fnames = {"file1.txt", "file2.txt", "file3.txt"}
         >>> user._known_action_rm_files("file[1-2].txt")
         2 files matched the pattern file[1-2].txt : ['file1.txt', 'file2.txt']
         'file3.txt'
@@ -1033,7 +1051,7 @@ class User:
 
         # match pattern to self.fnames
         matched_files = set()
-        for fname in self.fnames:
+        for fname in self.config.fnames:
             try:
                 if re.match(f"^{pattern}$", fname):
                     matched_files.add(fname)
@@ -1049,13 +1067,13 @@ class User:
         )
 
         # remove the matched files
-        self.fnames -= matched_files
+        self.config.fnames -= matched_files
 
         return self._known_action_ls_ctx_files()
 
     def _known_action_ls_ctx_files(self, *args, **kwargs):
         """list all files used in context in the current chatbot"""
-        return "\n".join(self.fnames)
+        return "\n".join(self.config.fnames)
 
     def get_completer(self):
         """return autocompleter the current text with the prompt toolkit package"""
@@ -1115,14 +1133,14 @@ class User:
 
             context = chat_eval(
                 self.get_context,
-                use_azure=self.use_azure,
+                use_azure=self.config.use_azure,
             )(prompt)
             if not context:
                 print(EXCEPTION_PROMPT, "no context found")
             prompt = f"Context: {context}\n\nQuestion: {prompt}"
             print("done retrieving relevant context")
 
-            if self.show_context:
+            if self.config.show_context:
                 print(colored("Context:\n", "green"), context)
 
             # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
@@ -1136,7 +1154,7 @@ class User:
                 )
                 result = None
 
-        if not self.chat:
+        if not self.config.chat:
             self._reset()
         return result
 
@@ -1165,29 +1183,17 @@ class DiaryReader(User):
 
     def __init__(
         self,
-        diary_fn,
-        profile_fn,
-        # needed with base class
-        chat=False,
-        model="gpt-4-turbo",
-        human=False,
-        fnames=set(),
-        use_azure=False,
-        convert_pdf2md=False,
+        diary_fn: str,
+        profile_fn: str,
+        config: UserConfig = UserConfig(),
     ):
         self.profile = load_doc(
-            profile_fn, use_azure=use_azure, convert_pdf2md=convert_pdf2md
+            profile_fn,
+            use_azure=config.use_azure,
+            convert_pdf2md=config.convert_pdf2md,
         )[0].page_content
-        self.tone = "less serious"
-        super().__init__(
-            chat=chat,
-            model=model,
-            human=human,
-            show_context=False,
-            fnames=fnames,
-            use_azure=use_azure,
-            convert_pdf2md=convert_pdf2md,
-        )
+        self.tone = "casual"
+        super().__init__(config)
         # add diary_fn to fnames
         self._known_action_add_files(diary_fn)
 
@@ -1244,11 +1250,11 @@ class DiaryReader(User):
                     smap(
                         functools.partial(
                             load_doc,
-                            use_azure=self.use_azure,
+                            use_azure=self.config.use_azure,
                             in_memory_load=True,
-                            convert_pdf2md=self.convert_pdf2md,
+                            convert_pdf2md=self.config.convert_pdf2md,
                         ),
-                        self.fnames,
+                        self.config.fnames,
                     )
                 )
             )
@@ -1267,7 +1273,7 @@ class DiaryReader(User):
                 return diary
 
             s_date, e_date = parse_time_range_from_query(
-                question, use_azure=self.use_azure
+                question, use_azure=self.config.use_azure
             )  # fixme: maybe use self.model, but gpt3.5 doesn't work good enough
             # test if each entry is relevant to the time in the question
             entries = [e for e in entries if s_date <= e["date"] <= e_date]
@@ -1303,23 +1309,10 @@ class DocReader(User):
         self,
         chunk_size=1000,
         chunk_overlap=200,
-        # needed with base class
-        chat=False,
-        model="gpt-4-turbo",
-        human=False,
-        fnames=set(),
-        use_azure=False,
-        convert_pdf2md=False,
+        config: UserConfig = UserConfig(),
     ):
-        super().__init__(
-            chat=chat,
-            model=model,
-            human=human,
-            show_context=False,
-            fnames=fnames,
-            use_azure=use_azure,
-            convert_pdf2md=convert_pdf2md,
-        )
+        super().__init__(config)
+
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         # default
@@ -1376,7 +1369,7 @@ class DocReader(User):
 
     def get_context(self, question) -> str:
         """return the context of the question"""
-        if not self.fnames:
+        if not self.config.fnames:
             return ""
 
         # Load, chunk and index the contents: load doc + chunk and embeddings are cached
@@ -1386,19 +1379,19 @@ class DocReader(User):
                 smap(
                     functools.partial(
                         load_split_doc,
-                        use_azure=self.use_azure,
+                        use_azure=self.config.use_azure,
                         chunk_size=self.chunk_size,
                         chunk_overlap=self.chunk_overlap,
-                        convert_pdf2md=self.convert_pdf2md,
+                        convert_pdf2md=self.config.convert_pdf2md,
                     ),
-                    self.fnames,
+                    self.config.fnames,
                 )
             )
         )
         store = LocalFileStore("./cache/")
 
         # get client: TODO refactor
-        if self.use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
+        if self.config.use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
             print(
                 colored(
                     "Using AZURE openAI model for embedding"
