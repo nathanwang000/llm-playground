@@ -85,7 +85,7 @@ def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md") -> str:
       verbose: Whether to show extracted images
 
     Returns:
-      md text
+      md file path
 
     # >>> pdf2md_vlm('../docs/SMI-hypertension-bundle-emergency-checklist.pdf')
     # >>> pdf2md_vlm('../debug_docs/1.pdf')
@@ -97,20 +97,20 @@ def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md") -> str:
     images = convert_from_path(fn)
     md_txts = []
 
-    os.system(f"mkdir -p {output_dir}")
+    os.system(f"mkdir -p {output_dir}/page_contents/")
     combined_md_file_path = f"{output_dir}/{filename}.md"
     if os.path.exists(combined_md_file_path):  # caching
         print(f"skipping creating {combined_md_file_path} as it already exists")
         return combined_md_file_path
 
     for i, image in enumerate(images):
-        md_file_path = f"{output_dir}/{filename}_page{i}.md"
+        md_file_path = f"{output_dir}/page_contents/{filename}_page{i}.md"
         if os.path.exists(md_file_path):
             print(f"skipping {md_file_path} as it already exists")
             md_txts.append(open(md_file_path).read())
             continue
 
-        png_file_path = f"{output_dir}/{filename}_page{i}.png"
+        png_file_path = f"{output_dir}/page_contents/{filename}_page{i}.png"
         image.save(png_file_path, "PNG")
         print(info(f"processing page {i+1}/{len(images)}"))
         print(image)
