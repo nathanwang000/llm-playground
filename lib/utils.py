@@ -74,7 +74,7 @@ def info(message):
     return colored(message, "cyan")
 
 
-def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md") -> str:
+def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md", use_azure=False) -> str:
     """
     Convert a PDF file to a markdown string using gpt4o
     flow: pdf->png->md (img_desc)
@@ -116,6 +116,8 @@ def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md") -> str:
         print(image)
         bot = ChatVisionBot(
             "transcribe the image as markdown, keeping the structure of the document (e.g., heading and titles); Be sure to describe figures or visuals or embedded images in the format of '![<desc>](fake_url)'; The entire output will be interpreted as markdown, so don't wrap the output in ```markdown``` delimeter",
+            use_vision=True,
+            use_azure=use_azure,
         )
 
         md_txt = print_openai_stream(
@@ -144,7 +146,7 @@ def image2md(image_path, use_azure=False):
     img_name = os.path.basename(image_path).split(".")[0]
     output_fname = f"image_descs/{img_name}.md"
     if not os.path.exists(output_fname):
-        bot = ChatVisionBot(stream=True, use_azure=use_azure)
+        bot = ChatVisionBot(stream=True, use_azure=use_azure, use_vision=True)
         print(colored(f"Desc of {image_path} as ctxt:", "yellow"))
         image_desc = print_openai_stream(
             bot(
@@ -549,7 +551,9 @@ def load_doc(
         ext = fname.split(".")[-1]
         if ext == "pdf":
             if convert_pdf2md:
-                loader = UnstructuredMarkdownLoader(pdf2md_vlm(fname))
+                loader = UnstructuredMarkdownLoader(
+                    pdf2md_vlm(fname, use_azure=use_azure)
+                )
             else:
                 loader = PyPDFLoader(fname)
         elif ext in ["txt", "org"]:
@@ -752,6 +756,7 @@ class ChatVisionBot:
         model="gpt-4o",
         stream=True,
         use_azure=False,
+        use_vision=False,  # default to chat api to save cost
         max_tokens=3000,
     ):
         self.model = model
@@ -770,7 +775,6 @@ class ChatVisionBot:
                 )
             )
 
-            use_vision = True
             if use_vision:
                 print(colored("Using azure vision api", "yellow"))
                 proxies = {
