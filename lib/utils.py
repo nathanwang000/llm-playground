@@ -219,7 +219,7 @@ def parse_time_range_from_query(
     if use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
         print(
             colored(
-                "Using AZURE openAI model for time parsing"
+                "Using AZURE openAI chat model for time parsing"
                 " (Don't sent personal info!"
                 " use toggle_settings config.use_azure to turn it off)",
                 "yellow",
@@ -763,7 +763,7 @@ class ChatVisionBot:
         if self.use_azure and os.environ.get("AZURE_VISION_API_KEY"):
             print(
                 colored(
-                    "Using AZURE openAI model for chat "
+                    "Using AZURE openAI model for ChatVisionModel "
                     "(Don't sent personal info!"
                     " use toggle_settings use_azure to turn it off)",
                     "yellow",
@@ -772,6 +772,7 @@ class ChatVisionBot:
 
             use_vision = True
             if use_vision:
+                print(colored("Using azure vision api", "yellow"))
                 proxies = {
                     "http": "",
                     "https": "",
@@ -788,6 +789,7 @@ class ChatVisionBot:
                     base_url=f"{api_base}openai/deployments/{deployment_name}/extensions",
                 )
             else:  # text chat only model
+                print(colored("Using azure chat api", "yellow"))
                 azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
                 api_key = os.environ.get("AZURE_CHAT_API_KEY")
                 api_version = os.environ.get("AZURE_CHAT_API_VERSION")
@@ -1402,7 +1404,7 @@ class DocReader(User):
         if self.config.use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
             print(
                 colored(
-                    "Using AZURE openAI model for embedding"
+                    "Using AZURE openAI model chat api for embedding"
                     " (Don't sent personal info!"
                     " use toggle_settings use_azure to turn it off)",
                     "yellow",

@@ -140,7 +140,7 @@ def check_relevance(
     elif use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
         print(
             colored(
-                "Using AZURE openAI model for checking relevance."
+                "Using AZURE openAI chat model for checking relevance."
                 " (Don't sent personal info!"
                 " use toggle_use_azure to turn it off)",
                 "yellow",
