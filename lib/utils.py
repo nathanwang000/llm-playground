@@ -4,7 +4,6 @@ import base64
 import datetime
 import functools
 import glob
-import yaml
 import json
 import logging
 import os
@@ -15,33 +14,25 @@ import subprocess
 import tempfile
 from collections import namedtuple
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from operator import itemgetter
 from typing import List
-
 
 import openai
 import tqdm
 from const import EXCEPTION_PROMPT
 
 # for caching see https://shorturl.at/tHTV4
-from langchain.embeddings import CacheBackedEmbeddings
-from langchain.storage import LocalFileStore
 from langchain_community.document_loaders import (
     PyPDFLoader,
     TextLoader,
     UnstructuredMarkdownLoader,
 )
-from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_community import GoogleDriveLoader
 from langchain_openai import (
     AzureChatOpenAI,
-    AzureOpenAIEmbeddings,
     ChatOpenAI,
-    OpenAIEmbeddings,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pdf2image import convert_from_path
@@ -840,7 +831,6 @@ class ChatVisionBot:
 
     def save_chat(self, filename=""):
         """save chat messages to json file, need to supply filename"""
-        import json
 
         if filename != "":
             with open(filename, "w") as f:
@@ -853,7 +843,6 @@ class ChatVisionBot:
 
     def load_chat(self, filename):
         """load chat messages from json file"""
-        import json
 
         self.message = json.load(open(filename, "r"))
 
