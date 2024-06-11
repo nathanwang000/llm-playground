@@ -1,62 +1,26 @@
 # import time
 # import sys
-import base64
-import datetime
 import functools
-import glob
 import yaml
 import json
-import logging
 import os
 import pprint
 import re
-import signal
 import subprocess
-import tempfile
-from collections import namedtuple
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from operator import itemgetter
-from typing import List
 
 
-import openai
-import tqdm
 from const import EXCEPTION_PROMPT
 from evaluation import chat_eval
 
 # for caching see https://shorturl.at/tHTV4
 from langchain.embeddings import CacheBackedEmbeddings
 from langchain.storage import LocalFileStore
-from langchain_community.document_loaders import (
-    PyPDFLoader,
-    TextLoader,
-    UnstructuredMarkdownLoader,
-)
 from langchain_community.vectorstores import Chroma
-from langchain_core.documents import Document
-from langchain_core.messages import AIMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_community import GoogleDriveLoader
 from langchain_openai import (
-    AzureChatOpenAI,
     AzureOpenAIEmbeddings,
-    ChatOpenAI,
     OpenAIEmbeddings,
-)
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pdf2image import convert_from_path
-from prompt_toolkit import PromptSession
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.completion import Completer, Completion, WordCompleter
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.styles import Style
-from tenacity import (
-    before_sleep_log,
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
 )
 from termcolor import colored
 from utils import (
