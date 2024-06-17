@@ -4,6 +4,7 @@ import functools
 import yaml
 import json
 import os
+import datetime
 import pprint
 import re
 import subprocess
@@ -25,6 +26,8 @@ from langchain_openai import (
 from termcolor import colored
 from utils import (
     ChatVisionBot,
+    info,
+    print_openai_stream,
     format_docs,
     load_doc,
     read_from_dir,
@@ -37,6 +40,7 @@ from utils import (
     smap,
     parse_diary_entries,
     parse_time_range_from_query,
+    find_last_date_in_dir,
 )
 
 
@@ -263,7 +267,36 @@ class User:
             "get_context method not implemented, should be implemented in the subclass"
         )
 
+    def rag_call(self, prompt: str):
+        context = chat_eval(
+            self.get_context,
+            use_azure=self.config.use_azure,
+        )(prompt)
+        if not context:
+            print(EXCEPTION_PROMPT, "no context found")
+        prompt = f"Context: {context}\n\nQuestion: {prompt}"
+        print(info("done retrieving relevant context"))
+
+        if self.config.show_context:
+            print(colored("Context:\n", "green"), context)
+
+        # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
+        # so far mp based method have pickle issues
+        try:
+            result = self.chatbot(prompt)
+        except KeyboardInterrupt:
+            print(
+                EXCEPTION_PROMPT,
+                "Keyboard interrupt when sending to the guru (llm):",
+            )
+            result = None
+        return result
+
     def __call__(self, prompt: str):
+        """
+        chat with the user
+        """
+
         prompt = prompt.strip()
         prev_directory = os.getcwd()
 
@@ -279,7 +312,7 @@ class User:
             if prompt and prompt.split()[0] in self.known_actions:
                 k = prompt.split()[0]
                 v = prompt[len(k) :].strip()
-                print(f"executing bot command {k} {v}")
+                print(info(f"executing bot command {k} {v}"))
                 return self.known_actions[k](v)
 
             # then try to execute the command
@@ -308,29 +341,7 @@ class User:
             return None
         except Exception as e:
             print(EXCEPTION_PROMPT, e, colored("asking llm", "yellow"))
-
-            context = chat_eval(
-                self.get_context,
-                use_azure=self.config.use_azure,
-            )(prompt)
-            if not context:
-                print(EXCEPTION_PROMPT, "no context found")
-            prompt = f"Context: {context}\n\nQuestion: {prompt}"
-            print("done retrieving relevant context")
-
-            if self.config.show_context:
-                print(colored("Context:\n", "green"), context)
-
-            # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
-            # so far mp based method have pickle issues
-            try:
-                result = self.chatbot(prompt)
-            except KeyboardInterrupt:
-                print(
-                    EXCEPTION_PROMPT,
-                    "Keyboard interrupt when sending to the guru (llm):",
-                )
-                result = None
+            result = self.rag_call(prompt)
 
         if not self.config.chat:
             self._reset()
@@ -381,6 +392,37 @@ class DiaryReader(User):
             return self.tone
         self.tone = args[0]
         return self.tone
+
+    def _known_action_generate_report(self, *args, **kwargs) -> str:
+        """generate a report based on the diary since last time
+        the report was generated; report saved in <save_dir>/<date>/report.md"""
+
+        save_dir = "logs"
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
+            os.system(
+                f'mkdir -p {save_dir}/None; echo "no previous report" > {save_dir}/None/report.md'
+            )
+
+        instruction = (
+            "how's my last 2 weeks and suggestion for improvement"
+            if (len(args) == 0 or not args[0])
+            else args[0]
+        )
+        last_date = find_last_date_in_dir(save_dir)
+        today = datetime.datetime.today().date()
+        output_path = f"{save_dir}/{today}/report.md"
+        if str(last_date) == str(today):
+            return f"report already generated today, check {output_path}"
+
+        os.system(f"mkdir -p {save_dir}/{today}")
+        # generate the report
+        result = self.rag_call(instruction)
+        if self.chatbot.stream:
+            result = print_openai_stream(result)
+        with open(output_path, "w") as f:
+            f.write(result)
+        return f'report (instr: "{instruction}") saved in {output_path}'
 
     def _known_action_welcome(self, *args) -> str:
         """

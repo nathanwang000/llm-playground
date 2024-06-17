@@ -64,6 +64,41 @@ def info(message):
     return colored(message, "cyan")
 
 
+def find_last_date_in_dir(dir_path, date_format="%Y-%m-%d"):
+    """
+    List all directories in dir_path.
+    Find the latest date that is not today in the directory.
+    Return the directory name with that date.
+
+    Parameters:
+    - dir_path (str): The path to the directory to search in.
+
+    Returns:
+    - str: The name of the directory with the last date
+    """
+    # Initialize variables
+    last_date = None
+    last_dir = None
+
+    # Iterate over the directories in dir_path
+    for dir_name in os.listdir(dir_path):
+        # Check if the directory is valid
+        if os.path.isdir(os.path.join(dir_path, dir_name)):
+            # Get the date from the directory name
+            try:
+                date = datetime.datetime.strptime(dir_name, date_format).date()
+            except ValueError:
+                continue
+
+            # Check if the date is later than the last_date
+            if last_date is None or date > last_date:
+                last_date = date
+                last_dir = dir_name
+
+    # Return the directory name with the last date
+    return last_dir
+
+
 def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md", use_azure=False) -> str:
     """
     Convert a PDF file to a markdown string using gpt4o
