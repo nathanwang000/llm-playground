@@ -99,7 +99,7 @@ def check_relevance(
     query: Query,
     answer: str,
     ai_mode: bool = False,
-    model: str = "gpt-3.5-turbo",
+    model: str = "gpt-4o",
     use_azure: bool = False,
     verbose: bool = False,
 ) -> Dict[str, Any]:
@@ -144,6 +144,7 @@ def check_relevance(
             stream=verbose,
             use_azure=use_azure,
             use_vision=len(query.image_paths) > 0,
+            model=model,
         )
     else:
         bot = human
@@ -166,24 +167,28 @@ def test_f(s: str) -> str:
     return s.capitalize()
 
 
-def chat_eval(f, use_azure=False):
+def chat_eval(f, use_azure=False, model="gpt-4o"):
     """
     Decorator for chat evaluation
+
+    assumes f: str->(str, Any)
+      where the first str is the answer and the second Any is the metadata
     """
 
     @functools.wraps(f)
-    def wrapper(question: str) -> str:
+    def wrapper(question: str) -> (str, Any):
         assert isinstance(question, str), "chat eval currently only takes string input"
         # TODO: check input
-        answer = f(question)
+        answer, meta_data = f(question)
         # TODO: check output
         # check relevance | input, output
-        print(info(f"Checking relevance of {f.__name__}"))
+        print(info(f"checking relevance of {f.__name__}"))
         rel = check_relevance(
             f,
             Query(question),
             answer,
             ai_mode=True,
+            model=model,
             use_azure=use_azure,
         )
         if rel["score"] < 0.5:
@@ -200,7 +205,7 @@ def chat_eval(f, use_azure=False):
                 rel["explanation"],
             )
 
-        return answer
+        return answer, meta_data
 
     return wrapper
 

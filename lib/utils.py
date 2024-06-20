@@ -683,13 +683,13 @@ def load_split_doc(
     load documents, split the text using recursive character text splitter
     TODO: add document level cache using document changed time and the arguments (save the result to disk)
     """
-    print("loading", fname)
+    print(info("loading"), fname)
     doc = load_doc(fname, use_azure=use_azure, convert_pdf2md=convert_pdf2md)
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=chunk_overlap, add_start_index=True
     )
     splits = text_splitter.split_documents(doc)
-    print(fname, "split into", len(splits), "chunks")
+    print(fname, info("split into"), len(splits), "chunks")
     return splits
 
 
@@ -791,7 +791,7 @@ class ChatVisionBot:
 
         if self.use_azure and os.environ.get("AZURE_VISION_API_KEY"):
             if use_vision:
-                print(info("Using Azure vision api for chatbot creation"))
+                print(info("using Azure vision api for chatbot creation"))
                 proxies = {
                     "http": "",
                     "https": "",
@@ -808,7 +808,7 @@ class ChatVisionBot:
                     base_url=f"{api_base}openai/deployments/{deployment_name}/extensions",
                 )
             else:  # text chat only model
-                print(info("Using Azure chat api for chatbot creation"))
+                print(info("using Azure chat api for chatbot creation"))
                 azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
                 api_key = os.environ.get("AZURE_CHAT_API_KEY")
                 api_version = os.environ.get("AZURE_CHAT_API_VERSION")

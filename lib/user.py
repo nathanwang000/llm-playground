@@ -10,6 +10,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from operator import itemgetter
+from typing import Any
 
 
 from const import EXCEPTION_PROMPT
@@ -262,21 +263,27 @@ class User:
         """return autocompleter the current text with the prompt toolkit package"""
         return ShellCompleter(self.known_actions.keys())
 
-    def get_context(self, question: str) -> str:
-        """return the context of the question"""
+    def get_context(self, question: str) -> (str, Any):
+        """return the context of the question,
+        and meta_data for the answer"""
         raise NotImplementedError(
             "get_context method not implemented, should be implemented in the subclass"
         )
 
     def rag_call(self, prompt: str):
-        context = chat_eval(
+        context, meta_data = chat_eval(
             self.get_context,
             use_azure=self.config.use_azure,
         )(prompt)
+        print(
+            info("src of retrieved context:"),
+            pprint.pformat(meta_data),
+        )
+
         if not context:
             print(EXCEPTION_PROMPT, "no context found")
         prompt = f"Context: {context}\n\nQuestion: {prompt}"
-        print(info("Done retrieving relevant context"))
+        print(info("done retrieving relevant context"))
 
         if self.config.show_context:
             print(info("Context:\n"), context)
@@ -462,7 +469,7 @@ class DiaryReader(User):
             tools=self._known_action_list_tools(), profile=self.profile, tone=self.tone
         )
 
-    def get_context(self, question) -> str:
+    def get_context(self, question) -> (str, Any):
         """specific retriever for diary"""
         diary = format_docs(
             list(
@@ -492,9 +499,10 @@ class DiaryReader(User):
                 )
                 return diary
 
+            # fixme: maybe use self.model, but gpt3.5 doesn't work good enough
             s_date, e_date = parse_time_range_from_query(
                 question, use_azure=self.config.use_azure
-            )  # fixme: maybe use self.model, but gpt3.5 doesn't work good enough
+            )
             # test if each entry is relevant to the time in the question
             entries = [e for e in entries if s_date <= e["date"] <= e_date]
         except Exception as e:
@@ -502,11 +510,13 @@ class DiaryReader(User):
             print(
                 EXCEPTION_PROMPT,
                 e,
-                "in diary_content_retriever(), using last 7 entries sorted by date",
+                "in diary get_context, using last 7 entries sorted by date",
             )
             print([e["date"].strftime("%m/%d/%Y") for e in entries])
 
-        return "\n\n".join([e["entry"] for e in entries])
+        return "\n\n".join(
+            [e["entry"] for e in entries]
+        ), "meta data not implemented yet"
 
 
 class DocReader(User):
@@ -586,7 +596,7 @@ class DocReader(User):
         such as "show me your prompt"'''
         return self.system_prompt.format(tools=self._known_action_list_tools())
 
-    def get_context(self, question) -> str:
+    def get_context(self, question) -> (str, Any):
         """return the context of the question"""
         if not self.config.fnames:
             return ""
@@ -631,9 +641,15 @@ class DocReader(User):
         cached_embedder = CacheBackedEmbeddings.from_bytes_store(
             underlying_embeddings, store, namespace=underlying_embeddings.model
         )
-        vectorstore = Chroma.from_documents(documents=docs, embedding=cached_embedder)
+        vectorstore = Chroma.from_documents(
+            documents=docs,
+            embedding=cached_embedder,
+        )
 
         # Retrieve and generate using the relevant snippets of the blog.
-        retriever = vectorstore.as_retriever(search_kwargs={"k": self.max_n_context})
+        retriever = vectorstore.as_retriever(
+            search_kwargs={"k": self.max_n_context},
+        )
 
-        return (retriever | format_docs).invoke(question)
+        docs = retriever.invoke(question)
+        return format_docs(docs), [doc.metadata for doc in docs]
