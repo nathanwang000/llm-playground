@@ -64,6 +64,10 @@ def info(message):
     return colored(message, "cyan")
 
 
+def success(message):
+    return colored(message, "green")
+
+
 def find_last_date_in_dir(dir_path, date_format="%Y-%m-%d"):
     """
     List all directories in dir_path.
@@ -172,7 +176,7 @@ def image2md(image_path, use_azure=False):
     output_fname = f"image_descs/{img_name}.md"
     if not os.path.exists(output_fname):
         bot = ChatVisionBot(stream=True, use_azure=use_azure, use_vision=True)
-        print(colored(f"Desc of {image_path} as ctxt:", "yellow"))
+        print(info(f"Desc of {image_path} as ctxt:"))
         image_desc = print_openai_stream(
             bot(
                 "describe the given image in detail: if the image has structure, format it as markdown",
@@ -245,12 +249,9 @@ def parse_time_range_from_query(
 
     if use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
         print(
-            colored(
-                "Using AZURE openAI chat model for time parsing"
-                " (Don't sent personal info!"
-                " use toggle_settings config.use_azure to turn it off)",
-                "yellow",
-            )
+            info("time parsing using Azure:"),
+            "Don't sent personal info!"
+            " use toggle_settings config.use_azure to turn it off",
         )
         azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
         api_key = os.environ.get("AZURE_CHAT_API_KEY")
@@ -267,7 +268,7 @@ def parse_time_range_from_query(
     chain = p | llm | parse_time_range_from_AI_message
 
     result = chain.invoke({"query": query, "today": today})
-    print(colored("parsed time range:", "yellow"), result)
+    print(info("parsed time range:"), result)
     return result
 
 
@@ -469,9 +470,7 @@ def print_langchain_stream(ans) -> str:
                 else:
                     output[key] += chunk[key]
                 if key != curr_key:
-                    print(
-                        f"\n\n{colored(key, 'green')}: {chunk[key]}", end="", flush=True
-                    )
+                    print(f"\n\n{info(key)}: {chunk[key]}", end="", flush=True)
                 else:
                     print(chunk[key], end="", flush=True)
                 curr_key = key
@@ -530,7 +529,7 @@ def repl(
             print(EXCEPTION_PROMPT, e)
 
         ans = f(user_input)
-        print(colored(output_prompt, "green"))
+        print(success(output_prompt))
         printf(ans)
 
 
@@ -604,7 +603,7 @@ def strip_multiline(text):
 def human_llm(prompt):
     if not isinstance(prompt, str):
         prompt = prompt.to_string()
-    res = input(colored(prompt + "\nwaiting for response: ", "yellow"))
+    res = input(info(prompt + "\nwaiting for response: "))
     return AIMessage(res)
 
 
@@ -791,17 +790,8 @@ class ChatVisionBot:
         self.max_tokens = max_tokens
 
         if self.use_azure and os.environ.get("AZURE_VISION_API_KEY"):
-            print(
-                colored(
-                    "Using AZURE openAI model for ChatVisionModel "
-                    "(Don't sent personal info!"
-                    " use toggle_settings use_azure to turn it off)",
-                    "yellow",
-                )
-            )
-
             if use_vision:
-                print(colored("Using azure vision api", "yellow"))
+                print(info("Using Azure vision api for chatbot creation"))
                 proxies = {
                     "http": "",
                     "https": "",
@@ -818,7 +808,7 @@ class ChatVisionBot:
                     base_url=f"{api_base}openai/deployments/{deployment_name}/extensions",
                 )
             else:  # text chat only model
-                print(colored("Using azure chat api", "yellow"))
+                print(info("Using Azure chat api for chatbot creation"))
                 azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
                 api_key = os.environ.get("AZURE_CHAT_API_KEY")
                 api_version = os.environ.get("AZURE_CHAT_API_VERSION")

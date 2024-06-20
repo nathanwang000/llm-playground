@@ -67,7 +67,7 @@ def get_function_info(func: Callable) -> (str, str):
 
 def human(prompt: Query) -> str:
     """Prompt the user for input and return the response as an AIMessage; for debugging"""
-    res = input(colored(prompt + "\nwaiting for response: ", "yellow"))
+    res = input(info(prompt + "\nwaiting for response: "))
     return res
 
 
@@ -178,7 +178,7 @@ def chat_eval(f, use_azure=False):
         answer = f(question)
         # TODO: check output
         # check relevance | input, output
-        print(colored(f"checking relevance of {f.__name__}", "yellow"))
+        print(info(f"Checking relevance of {f.__name__}"))
         rel = check_relevance(
             f,
             Query(question),

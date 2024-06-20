@@ -27,6 +27,7 @@ from termcolor import colored
 from utils import (
     ChatVisionBot,
     info,
+    success,
     print_openai_stream,
     format_docs,
     load_doc,
@@ -275,10 +276,10 @@ class User:
         if not context:
             print(EXCEPTION_PROMPT, "no context found")
         prompt = f"Context: {context}\n\nQuestion: {prompt}"
-        print(info("done retrieving relevant context"))
+        print(info("Done retrieving relevant context"))
 
         if self.config.show_context:
-            print(colored("Context:\n", "green"), context)
+            print(info("Context:\n"), context)
 
         # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
         # so far mp based method have pickle issues
@@ -340,7 +341,7 @@ class User:
             print(EXCEPTION_PROMPT, "KeyboardInterrupt")  # no need to ask llm
             return None
         except Exception as e:
-            print(EXCEPTION_PROMPT, e, colored("asking llm", "yellow"))
+            print(EXCEPTION_PROMPT, e, info("asking llm"))
             result = self.rag_call(prompt)
 
         if not self.config.chat:
@@ -429,17 +430,16 @@ class DiaryReader(User):
         a piece of text to show when the user starts the program
         """
         message = subprocess.check_output(["figlet", "Know thyself"]).decode()
-        inspire = colored(
-            "You are creative, openminded, and ready to learn new things about this absurd world!",
-            "yellow",
+        inspire = info(
+            "You are creative, openminded, and ready to learn new things about this absurd world!"
         )
         quote = (
-            colored("Random words of wisdom:\n\n", "green")
+            success("Random words of wisdom:\n\n")
             + subprocess.check_output(["fortune"]).decode()
         )
         reminder = "\n".join(
             [
-                colored("Ideas to try:\n", "green"),
+                success("Ideas to try:\n"),
                 "- learn a new emacs (c-h r) or python trick",
                 "- update cheatsheet about me: https://shorturl.at/ltwKW",
                 "- my work items are in https://shorturl.at/HLP59",
@@ -448,7 +448,7 @@ class DiaryReader(User):
         )
         user_prompt = "\n".join(
             [
-                colored("You may wanna ask:\n", "green"),
+                success("You may wanna ask:\n"),
                 "- what should I learn next?",
                 "- how to improve from last week?",
             ]
@@ -543,17 +543,16 @@ class DocReader(User):
         a piece of text to show when the user starts the program
         """
         message = subprocess.check_output(["figlet", "Ask Docs"]).decode()
-        inspire = colored(
-            "You are creative, openminded, and ready to learn new things about this absurd world!",
-            "yellow",
+        inspire = info(
+            "You are creative, openminded, and ready to learn new things about this absurd world!"
         )
         quote = (
-            colored("Random words of wisdom:\n\n", "green")
+            success("Random words of wisdom:\n\n")
             + subprocess.check_output(["fortune"]).decode()
         )
         reminder = "\n".join(
             [
-                colored("Ideas to try:\n", "green"),
+                success("Ideas to try:\n"),
                 "- Explaination hypothesis: A model's true test of generality lies in its ability to eloquently convey its insights to minds beyond its own.",
                 "- Idea: generate explaination to help another model increase its performance -> in turn increase the performance of the first model",
                 "- my work items are in https://shorturl.at/HLP59",
@@ -561,7 +560,7 @@ class DocReader(User):
         )
         user_prompt = "\n".join(
             [
-                colored("You may wanna ask:\n", "green"),
+                success("You may wanna ask:\n"),
                 "- what should I research next?",
                 "- insight from my research diary last week?",
                 "- add to occasion ideas for event planning: https://shorturl.at/gzQ17",
@@ -569,7 +568,7 @@ class DocReader(User):
         )
         other_tips = "\n".join(
             [
-                colored("To add google drive access:", "green"),
+                success("To add google drive access:"),
                 "- follow https://developers.google.com/drive/api/quickstart/python # run the code to get token.json",
                 "- remember to change scopes to .../auth/drive and auth/docs in the app setting and when running the script",
                 "- save token.json to secrets/token.json",
@@ -613,12 +612,9 @@ class DocReader(User):
         # get client: TODO refactor
         if self.config.use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
             print(
-                colored(
-                    "Using AZURE openAI model chat api for embedding"
-                    " (Don't sent personal info!"
-                    " use toggle_settings use_azure to turn it off)",
-                    "yellow",
-                )
+                info("Azure chat api for embedding:"),
+                "Don't sent personal info!"
+                " use toggle_settings config.use_azure to turn it off",
             )
             azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
             api_key = os.environ.get("AZURE_CHAT_API_KEY")
