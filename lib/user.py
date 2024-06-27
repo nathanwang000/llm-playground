@@ -645,6 +645,7 @@ class DocReader(User):
             documents=docs,
             embedding=cached_embedder,
         )
+        # print(info("vector store docs"), docs)
 
         # Retrieve and generate using the relevant snippets of the blog.
         retriever = vectorstore.as_retriever(
@@ -652,4 +653,5 @@ class DocReader(User):
         )
 
         docs = retriever.invoke(question)
+        # print(info("retrieved docs"), docs)
         return format_docs(docs), [doc.metadata for doc in docs]

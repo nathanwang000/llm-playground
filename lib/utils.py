@@ -747,25 +747,16 @@ class ShellCompleter(Completer):
             results = self.cascade_match(chunks[-1], self.commands)
             yield from [Completion(r, start_position=-len(chunks[-1])) for r in results]
         else:
+            # treat non first argument as path to complete
             # complete file path
-            if endwithWS.match(text_before_cursor):
-                text_to_complete = ""
-            else:
-                text_to_complete = os.path.expanduser(chunks[-1])
+            text_to_complete = os.path.expanduser(
+                " ".join(chunks[1:]).strip(),
+            )
 
-            quote = ""
-            directory = os.path.dirname(text_to_complete)
-            if directory:
-                if directory[0] in ["'", '"']:
-                    quote = directory[0]
             fname = os.path.basename(text_to_complete)
             for path in glob.glob(text_to_complete + "*"):
                 cfname = os.path.basename(path)
-                if quote == "":
-                    cfname = unquoted_shell_escape(cfname)  # escape without quotes
-                if os.path.isfile(path):
-                    cfname = cfname + quote
-                elif os.path.isdir(path):
+                if os.path.isdir(path):
                     cfname = cfname + "/"
                 yield Completion(cfname, start_position=-len(fname))
 
