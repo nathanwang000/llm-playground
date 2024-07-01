@@ -497,7 +497,7 @@ class DiaryReader(User):
                     e,
                     "in get_context(), using full entries",
                 )
-                return diary
+                return (diary, "full entry")
 
             # fixme: maybe use self.model, but gpt3.5 doesn't work good enough
             s_date, e_date = parse_time_range_from_query(
@@ -599,7 +599,7 @@ class DocReader(User):
     def get_context(self, question) -> (str, Any):
         """return the context of the question"""
         if not self.config.fnames:
-            return ""
+            return ("", "no config.fnames in get_context")
 
         # Load, chunk and index the contents: load doc + chunk and embeddings are cached
         # TODO: use pmap later for multiprocessing, after figuring out how to cache in mp
@@ -641,17 +641,22 @@ class DocReader(User):
         cached_embedder = CacheBackedEmbeddings.from_bytes_store(
             underlying_embeddings, store, namespace=underlying_embeddings.model
         )
+        # delete exisiting docs and add in new docs
         vectorstore = Chroma.from_documents(
-            documents=docs,
+            documents=docs[:1],  # this is dummy
             embedding=cached_embedder,
         )
-        # print(info("vector store docs"), docs)
+        for vid in vectorstore.get()["ids"]:
+            vectorstore.delete(vid)
+        vectorstore.add_documents(docs)
 
         # Retrieve and generate using the relevant snippets of the blog.
         retriever = vectorstore.as_retriever(
             search_kwargs={"k": self.max_n_context},
         )
 
-        docs = retriever.invoke(question)
-        # print(info("retrieved docs"), docs)
-        return format_docs(docs), [doc.metadata for doc in docs]
+        retrieved_docs = retriever.invoke(question)
+        return (
+            format_docs(retrieved_docs),
+            [doc.metadata for doc in retrieved_docs],
+        )
