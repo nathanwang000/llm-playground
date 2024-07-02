@@ -1,5 +1,5 @@
 # import time
-# import sys
+import sys
 import base64
 import datetime
 import functools
@@ -18,7 +18,16 @@ from typing import List
 
 import openai
 import tqdm
+
+sys.path.append(
+    os.path.join(
+        os.path.dirname(__file__),
+    )
+)
+
 from const import EXCEPTION_PROMPT
+
+# from const import EXCEPTION_PROMPT
 
 # for caching see https://shorturl.at/tHTV4
 from langchain_community.document_loaders import (
