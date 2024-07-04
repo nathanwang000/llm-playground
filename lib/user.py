@@ -260,8 +260,28 @@ class User:
         return "\n".join(self.config.fnames)
 
     def get_completer(self):
-        """return autocompleter the current text with the prompt toolkit package"""
-        return ShellCompleter(self.known_actions.keys())
+        """return autocompleter the current text with the
+        prompt toolkit package"""
+        try:
+            import sys
+
+            sys.path.append(os.path.join(os.path.dirname(__file__), "../../../parse"))
+            from generation.rtn_completer import RTNCompleter
+            from generation.rtn import C_add, C, get_path_rtn
+
+            return RTNCompleter(
+                # <command> <path>
+                C_add(self.known_actions.keys()) * C(" ") * get_path_rtn()
+                # + # TODO <anything> <path>
+            )
+        except Exception as e:
+            print(
+                info(
+                    "using shell completer b/c RTN completion had error:",
+                ),
+                e,
+            )
+            return ShellCompleter(self.known_actions.keys())
 
     def get_context(self, question: str) -> (str, Any):
         """return the context of the question,
