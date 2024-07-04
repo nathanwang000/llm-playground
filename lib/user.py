@@ -10,7 +10,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from operator import itemgetter
-from typing import Any
+from typing import Any, List
 
 
 from const import EXCEPTION_PROMPT
@@ -268,11 +268,45 @@ class User:
             sys.path.append(os.path.join(os.path.dirname(__file__), "../../../parse"))
             from generation.rtn_completer import RTNCompleter
             from generation.rtn import C_add, C, get_path_rtn
+            from generation.rtn import C_regex, RTN, C_mul
+
+            path_rtn = get_path_rtn()
+
+            def gen_attr_paths(obj, curr_path: List[str]):
+                # see if obj is primtive types
+                if not hasattr(obj, "__dict__"):
+                    yield curr_path
+                for attr in dir(obj):
+                    yield from gen_attr_paths(getattr(obj, attr), curr_path + [attr])
+
+            def toggle_settings_rtn():
+                # TODO: remove this when done, it is for playground
+                return C_mul(["toggle_settings", " ", "config", "."]) * C_add(
+                    [
+                        attr
+                        for attr in dir(self.config)
+                        if isinstance(getattr(self.config, attr), bool)
+                    ]
+                )
 
             return RTNCompleter(
+                # toggle_settings <attributes that are bool>
+                # TODO: use more general solution for each known functions
+                # and generalze the config.dir(self.config) implementation
+                # e.g. get all bool attr path and then split by '.' to have
+                # per piece recommendation (compose with *)
+                C_mul(["toggle_settings", " ", "config", "."])
+                * C_add(
+                    [
+                        attr
+                        for attr in dir(self.config)
+                        if isinstance(getattr(self.config, attr), bool)
+                    ]
+                )
                 # <command> <path>
-                C_add(self.known_actions.keys()) * C(" ") * get_path_rtn()
-                # + # TODO <anything> <path>
+                | (C_add(self.known_actions.keys()) * C(" ") * path_rtn)
+                # | <anything> <path>
+                | (C_regex("\S+ ") * path_rtn)
             )
         except Exception as e:
             print(
