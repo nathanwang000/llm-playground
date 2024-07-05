@@ -74,10 +74,7 @@ class User:
     If you happen to know the answer outside the provided context,
     clearly indicate that and provide the answer.
 
-    ------------------- beginning of tool descriptions -------------------
-    When users ask for chat bot related commands, suggest the following:
-    
-    {tools}
+    When users ask for commands available, suggest the `list_tools` command.
     """
 
     def __init__(
@@ -415,13 +412,8 @@ class DiaryReader(User):
 
     Response tone: {tone}
 
-    ------------------- beginning of tool descriptions -------------------
-    When users ask for chat bot related commands, suggest the following:
-    
-    {tools}
-
-    -------------------- end of tool descriptions --------------------
-
+    When users ask for commands available, suggest the `list_tools` command.
+                      
     user profile: ```{profile}```
     """
 
@@ -512,9 +504,7 @@ class DiaryReader(User):
     def _known_action_get_prompt(self, *args, **kwargs):
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
         such as "show me your prompt"'''
-        return self.system_prompt.format(
-            tools=self._known_action_list_tools(), profile=self.profile, tone=self.tone
-        )
+        return self.system_prompt.format(profile=self.profile, tone=self.tone)
 
     def get_context(self, question) -> (str, Any):
         """specific retriever for diary"""
@@ -576,10 +566,7 @@ class DocReader(User):
     If you know the answer outside the provided context,
     clearly indicate that and provide the answer.
 
-    ------------------- beginning of tool descriptions -------------------
-    When users ask for chat bot related commands, suggest the following:
-    
-    {tools}
+    When users ask for commands available, suggest the `list_tools` command.
     """
 
     def __init__(
@@ -641,7 +628,7 @@ class DocReader(User):
     def _known_action_get_prompt(self, *args, **kwargs):
         '''return the prompt of the current chatbot; use this tool when users ask for the prompt
         such as "show me your prompt"'''
-        return self.system_prompt.format(tools=self._known_action_list_tools())
+        return self.system_prompt
 
     def get_context(self, question) -> (str, Any):
         """return the context of the question"""
