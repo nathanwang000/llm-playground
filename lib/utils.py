@@ -711,6 +711,39 @@ def format_docs(docs: List[Document]) -> str:
     return "\n\n\n".join(formatted)
 
 
+def gen_attr_paths_value(
+    obj,
+    curr_path: List[str],
+    seen=set(),
+    depth=0,
+):
+    """
+    return the attr (path, value) pairs
+
+    >>> next(gen_attr_paths_value(1, []))
+    ([], 1)
+    >>> list(gen_attr_paths_value(ShellCompleter(), []))
+    [(['commands'], []), (['command_completer', 'ignore_case'], True), (['command_completer', 'display_dict'], {}), (['command_completer', 'meta_dict'], {}), (['command_completer', 'WORD'], False), (['command_completer', 'pattern'], None)]
+    """
+    # see if obj is primtive types
+    if id(obj) in seen:
+        yield from []
+        return
+
+    seen.add(id(obj))
+    if not hasattr(obj, "__dict__"):
+        yield curr_path, obj
+        return
+
+    for attr in obj.__dict__.keys():
+        yield from gen_attr_paths_value(
+            getattr(obj, attr, None),
+            curr_path + [attr],
+            seen,
+            depth + 1,
+        )
+
+
 class ShellCompleter(Completer):
     def __init__(self, commands=None):
         if commands is None:

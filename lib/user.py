@@ -43,6 +43,7 @@ from utils import (
     parse_diary_entries,
     parse_time_range_from_query,
     find_last_date_in_dir,
+    gen_attr_paths_value,
 )
 
 
@@ -272,20 +273,22 @@ class User:
 
             path_rtn = get_path_rtn()
 
-            def gen_attr_paths(obj, curr_path: List[str]):
-                # see if obj is primtive types
-                if not hasattr(obj, "__dict__"):
-                    yield curr_path
-                for attr in dir(obj):
-                    yield from gen_attr_paths(getattr(obj, attr), curr_path + [attr])
-
             def toggle_settings_rtn():
-                # TODO: remove this when done, it is for playground
-                return C_mul(["toggle_settings", " ", "config", "."]) * C_add(
+                # TODO: use this to replace the following adhoc rule
+                print(
+                    list(
+                        filter(
+                            lambda x: isinstance(x[1], bool),
+                            gen_attr_paths_value(self, []),
+                        )
+                    )
+                )
+
+                return C_mul(["toggle_settings", " "]) * C_add(
                     [
-                        attr
-                        for attr in dir(self.config)
-                        if isinstance(getattr(self.config, attr), bool)
+                        C_mul(attr_path)
+                        for attr_path, value in gen_attr_paths_value(self, [])
+                        if isinstance(value, bool)
                     ]
                 )
 
