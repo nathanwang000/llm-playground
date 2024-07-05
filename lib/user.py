@@ -44,6 +44,7 @@ from utils import (
     parse_time_range_from_query,
     find_last_date_in_dir,
     gen_attr_paths_value,
+    join_list,
 )
 
 
@@ -274,20 +275,19 @@ class User:
             path_rtn = get_path_rtn()
 
             def toggle_settings_rtn():
-                # TODO: use this to replace the following adhoc rule
                 print(
                     list(
                         filter(
                             lambda x: isinstance(x[1], bool),
-                            gen_attr_paths_value(self, []),
+                            gen_attr_paths_value(self, [], set()),
                         )
                     )
                 )
 
                 return C_mul(["toggle_settings", " "]) * C_add(
                     [
-                        C_mul(attr_path)
-                        for attr_path, value in gen_attr_paths_value(self, [])
+                        C_mul(join_list(".", attr_path))
+                        for attr_path, value in gen_attr_paths_value(self, [], set())
                         if isinstance(value, bool)
                     ]
                 )
@@ -295,17 +295,7 @@ class User:
             return RTNCompleter(
                 # toggle_settings <attributes that are bool>
                 # TODO: use more general solution for each known functions
-                # and generalze the config.dir(self.config) implementation
-                # e.g. get all bool attr path and then split by '.' to have
-                # per piece recommendation (compose with *)
-                C_mul(["toggle_settings", " ", "config", "."])
-                * C_add(
-                    [
-                        attr
-                        for attr in dir(self.config)
-                        if isinstance(getattr(self.config, attr), bool)
-                    ]
-                )
+                toggle_settings_rtn()
                 # <command> <path>
                 | (C_add(self.known_actions.keys()) * C(" ") * path_rtn)
                 # | <anything> <path>

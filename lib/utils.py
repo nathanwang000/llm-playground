@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 from collections import namedtuple
 from collections.abc import Mapping
-from typing import List
+from typing import List, Set
 
 import openai
 import tqdm
@@ -711,29 +711,44 @@ def format_docs(docs: List[Document]) -> str:
     return "\n\n\n".join(formatted)
 
 
+def join_list(item, list):
+    """list version of "".join(List[str])
+    >>> join_list(' ', ['a', 'b', 'c'])
+    ['a', ' ', 'b', ' ', 'c']
+    """
+    res = []
+    for i in list:
+        res.append(i)
+        res.append(item)
+    return res[:-1]  # get rid of the last item
+
+
 def gen_attr_paths_value(
     obj,
     curr_path: List[str],
-    seen=set(),
+    seen: Set,
     depth=0,
 ):
     """
     return the attr (path, value) pairs
 
-    >>> next(gen_attr_paths_value(1, []))
+    NOTE: curr_path and seen don't have default of their type because they are mutable
+
+    >>> next(gen_attr_paths_value(1, [], set()))
     ([], 1)
-    >>> list(gen_attr_paths_value(ShellCompleter(), []))
-    [(['commands'], []), (['command_completer', 'ignore_case'], True), (['command_completer', 'display_dict'], {}), (['command_completer', 'meta_dict'], {}), (['command_completer', 'WORD'], False), (['command_completer', 'pattern'], None)]
+    >>> list(gen_attr_paths_value(ShellCompleter(), [], set()))
+    [(['commands'], []), (['command_completer', 'words'], []), (['command_completer', 'ignore_case'], True), (['command_completer', 'display_dict'], {}), (['command_completer', 'meta_dict'], {}), (['command_completer', 'WORD'], False), (['command_completer', 'sentence'], False), (['command_completer', 'match_middle'], False), (['command_completer', 'pattern'], None)]
     """
     # see if obj is primtive types
-    if id(obj) in seen:
-        yield from []
-        return
-
-    seen.add(id(obj))
     if not hasattr(obj, "__dict__"):
         yield curr_path, obj
         return
+
+    # non primitive types need to track whether loop
+    if id(obj) in seen:
+        yield from []
+        return
+    seen.add(id(obj))
 
     for attr in obj.__dict__.keys():
         yield from gen_attr_paths_value(
