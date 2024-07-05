@@ -711,6 +711,35 @@ def format_docs(docs: List[Document]) -> str:
     return "\n\n\n".join(formatted)
 
 
+def partial_wrap(f, *pargs, add_note=True, **pkwargs):
+    """
+    behaves like functools.partial but inherent f's doc string and specifies
+    args supplied
+    """
+    partial_f = functools.partial(f, *pargs, **pkwargs)
+
+    @functools.wraps(f)
+    def _f(*args, **kwargs):
+        return partial_f(*args, **kwargs)
+
+    # Modify the docstring
+    if add_note:
+        additional_note = (
+            "\n\nNote:\nThis function has the following arguments supplied:\n"
+        )
+        for i, arg in enumerate(pargs):
+            additional_note += f"    arg[{i}] = {arg}\n"
+        for arg, value in pkwargs.items():
+            additional_note += f"    {arg} = {value}\n"
+
+        if f.__doc__:
+            _f.__doc__ = f.__doc__ + additional_note
+        else:
+            _f.__doc__ = additional_note
+
+    return _f
+
+
 def join_list(item, list):
     """list version of "".join(List[str])
     >>> join_list(' ', ['a', 'b', 'c'])

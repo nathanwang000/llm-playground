@@ -45,6 +45,7 @@ from utils import (
     find_last_date_in_dir,
     gen_attr_paths_value,
     join_list,
+    partial_wrap,
 )
 
 
@@ -109,7 +110,9 @@ class User:
                 action_name = name[len("_known_action_") :]
                 if action_name not in self.known_actions:
                     # prefer the method in the subclass
-                    self.known_actions[action_name] = functools.partial(method, self)
+                    self.known_actions[action_name] = partial_wrap(
+                        method, self, add_note=False
+                    )
         for base_cls in cls.__bases__:
             self._add_known_actions(base_cls)
 
@@ -200,8 +203,14 @@ class User:
         """return a string describing the available tools to the chatbot; list all tools"""
         tools = []
         for k, v in self.known_actions.items():
-            description = strip_multiline(v.__doc__) if v.__doc__ else str(v)
-            tools.append("{}: \n{}".format(k, description))
+            if isinstance(v, str):
+                description = v
+            elif v.__doc__:
+                description = strip_multiline(v.__doc__)
+            else:
+                description = str(v)
+
+            tools.append("{}: \n{}".format(info(k), description))
         return "\n\n".join(tools)
 
     def _known_action_add_files(self, dirname):
@@ -275,15 +284,6 @@ class User:
             path_rtn = get_path_rtn()
 
             def toggle_settings_rtn():
-                print(
-                    list(
-                        filter(
-                            lambda x: isinstance(x[1], bool),
-                            gen_attr_paths_value(self, [], set()),
-                        )
-                    )
-                )
-
                 return C_mul(["toggle_settings", " "]) * C_add(
                     [
                         C_mul(join_list(".", attr_path))
