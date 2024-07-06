@@ -280,12 +280,19 @@ class User:
 
             path_rtn = get_path_rtn()
 
+            def contain_private_method(attr_path: List[str]) -> bool:
+                for attr in attr_path:
+                    if attr.startswith("_"):
+                        return True
+                return False
+
             def toggle_settings_rtn():
                 return C_mul(["toggle_settings", " "]) * C_add(
                     [
                         C_mul(join_list(".", attr_path))
                         for attr_path, value in gen_attr_paths_value(self, [], set())
                         if isinstance(value, bool)
+                        and not contain_private_method(attr_path)
                     ]
                 )
 

@@ -765,8 +765,9 @@ def gen_attr_paths_value(
 
     >>> next(gen_attr_paths_value(1, [], set()))
     ([], 1)
-    >>> list(gen_attr_paths_value(ShellCompleter(), [], set()))
-    [(['commands'], []), (['command_completer', 'words'], []), (['command_completer', 'ignore_case'], True), (['command_completer', 'display_dict'], {}), (['command_completer', 'meta_dict'], {}), (['command_completer', 'WORD'], False), (['command_completer', 'sentence'], False), (['command_completer', 'match_middle'], False), (['command_completer', 'pattern'], None)]
+
+    # >>> list(gen_attr_paths_value(ShellCompleter(), [], set()))
+    # [(['commands'], []), (['command_completer', 'words'], []), (['command_completer', 'ignore_case'], True), (['command_completer', 'display_dict'], {}), (['command_completer', 'meta_dict'], {}), (['command_completer', 'WORD'], False), (['command_completer', 'sentence'], False), (['command_completer', 'match_middle'], False), (['command_completer', 'pattern'], None)]
     """
     # see if obj is primtive types
     if not hasattr(obj, "__dict__"):
@@ -779,7 +780,10 @@ def gen_attr_paths_value(
         return
     seen.add(id(obj))
 
-    for attr in obj.__dict__.keys():
+    # dir is more general than __dict__ as the later may
+    # not even exist if one uses __slot__ to save memory
+    # also don't account for parent class attribute
+    for attr in dir(obj):  # obj.__dict__.keys():
         yield from gen_attr_paths_value(
             getattr(obj, attr, None),
             curr_path + [attr],
