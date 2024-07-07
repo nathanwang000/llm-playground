@@ -752,6 +752,13 @@ def join_list(item, list):
     return res[:-1]  # get rid of the last item
 
 
+def contain_private_method(attr_path: List[str]) -> bool:
+    for attr in attr_path:
+        if attr.startswith("_"):
+            return True
+    return False
+
+
 def gen_attr_paths_value(
     obj,
     curr_path: List[str],

@@ -46,6 +46,7 @@ from utils import (
     gen_attr_paths_value,
     join_list,
     partial_wrap,
+    contain_private_method,
 )
 
 
@@ -164,11 +165,7 @@ class User:
             last_name = name
             obj = getattr(obj, name, None)
             if obj is None:
-                print(
-                    EXCEPTION_PROMPT,
-                    f"{setting_name} does not exist",
-                )
-                return
+                return f"{EXCEPTION_PROMPT}: {setting_name} does not exist"
 
         if not isinstance(obj, bool):
             print(
@@ -276,17 +273,12 @@ class User:
             sys.path.append(os.path.join(os.path.dirname(__file__), "../../../parse"))
             from generation.rtn_completer import RTNCompleter
             from generation.rtn import C_add, C, get_path_rtn
-            from generation.rtn import C_regex, RTN, C_mul
+            from generation.rtn import C_regex, C_mul
 
             path_rtn = get_path_rtn()
 
-            def contain_private_method(attr_path: List[str]) -> bool:
-                for attr in attr_path:
-                    if attr.startswith("_"):
-                        return True
-                return False
-
             def toggle_settings_rtn():
+                # toggle_settings <attributes that are bool>
                 return C_mul(["toggle_settings", " "]) * C_add(
                     [
                         C_mul(join_list(".", attr_path))
@@ -297,8 +289,7 @@ class User:
                 )
 
             return RTNCompleter(
-                # toggle_settings <attributes that are bool>
-                # TODO: use more general solution for each known functions
+                # TODO: for each known action, add an optional RTN
                 toggle_settings_rtn()
                 # <command> <path>
                 | (C_add(self.known_actions.keys()) * C(" ") * path_rtn)
