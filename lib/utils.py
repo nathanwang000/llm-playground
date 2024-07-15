@@ -1,5 +1,4 @@
 # import time
-import sys
 import base64
 import datetime
 import functools
@@ -11,6 +10,7 @@ import pprint
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 from collections import namedtuple
 from collections.abc import Mapping
@@ -27,8 +27,6 @@ sys.path.append(
 
 from const import EXCEPTION_PROMPT
 
-# from const import EXCEPTION_PROMPT
-
 # for caching see https://shorturl.at/tHTV4
 from langchain_community.document_loaders import (
     PyPDFLoader,
@@ -41,9 +39,14 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_community import GoogleDriveLoader
 from langchain_openai import (
     AzureChatOpenAI,
+    AzureOpenAIEmbeddings,
     ChatOpenAI,
+    OpenAIEmbeddings,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# local package to generate openai api from https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/generic-edisonai-prod/llm_idam_token_generator/llm_idam_token_generator-0.1.20240603070355.tar.gz
+from llm_idam_token_generator.idam_token_generator import get_llm_access_token
 from pdf2image import convert_from_path
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -228,6 +231,55 @@ def parse_time_range_from_AI_message(message: AIMessage) -> DateRange:
     return DateRange(start_dates[0], end_dates[0])
 
 
+def get_embedding_model_langchain(use_azure=False, model="text-embedding-ada-002"):
+    if use_azure:
+        return AzureOpenAIEmbeddings(
+            azure_deployment=os.environ["EMBEDDING_DEPLOYMENT_MODEL"],
+            api_key="xxx",  # This is not playing any role, but required as per OpenAI sdk. So any random could be passed.
+            api_version=os.environ["EMBEDDING_AZURE_API_VERSION"],
+            azure_endpoint=os.environ["EMBEDDING_ENDPOINT"],
+            openai_api_type=os.environ["EMBEDDING_TYPE"],
+            default_headers={
+                "Authorization": f"Bearer {get_llm_access_token()}",
+                "Content-Type": "application/json",
+                "Ocp-Apim-Subscription-Key": f"{os.environ['APIM_KEY']}",
+            },
+        )
+    return OpenAIEmbeddings(model=model)
+
+
+def get_llm_langchain(use_azure=False, model="gpt-4o"):
+    if use_azure:
+        return AzureChatOpenAI(
+            api_key="xxx",  # This is not playing any role, but required as per OpenAI sdk. So any random could be passed.
+            azure_endpoint=os.environ["OPENAI_ENDPOINT"],
+            azure_deployment=os.environ["OPENAI_DEPLOYMENT_MODEL"],
+            api_version=os.environ["OPENAI_AZURE_API_VERSION"],
+            default_headers={
+                "Authorization": f"Bearer {get_llm_access_token()}",
+                "Content-Type": "application/json",
+                "Ocp-Apim-Subscription-Key": os.environ["APIM_KEY"],
+            },
+        )
+    return ChatOpenAI(model=model)
+
+
+def get_llm_openai_client(use_azure=False):
+    if use_azure:
+        return openai.AzureOpenAI(
+            api_key="xxx",  # This is not playing any role, but required as per OpenAI sdk. So any random could be passed.
+            azure_endpoint=os.environ["OPENAI_ENDPOINT"],
+            azure_deployment=os.environ["OPENAI_DEPLOYMENT_MODEL"],
+            api_version=os.environ["OPENAI_AZURE_API_VERSION"],
+            default_headers={
+                "Authorization": f"Bearer {get_llm_access_token()}",
+                "Content-Type": "application/json",
+                "Ocp-Apim-Subscription-Key": os.environ["APIM_KEY"],
+            },
+        )
+    return openai.OpenAI()
+
+
 def parse_time_range_from_query(
     query: str, model: str = "gpt-4-turbo", use_azure=False
 ) -> DateRange:
@@ -256,6 +308,7 @@ def parse_time_range_from_query(
     )
     today = datetime.datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
 
+    # TODO: use get_llm_langchain
     if use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
         print(
             info("time parsing using Azure:"),
@@ -877,6 +930,8 @@ class ChatVisionBot:
         self.use_azure = use_azure
         self.max_tokens = max_tokens
 
+        # TODO: use get_llm
+        # TODO: regenerate client each time it is called using getter and setter
         if self.use_azure and os.environ.get("AZURE_VISION_API_KEY"):
             if use_vision:
                 print(info("using Azure vision api for chatbot creation"))

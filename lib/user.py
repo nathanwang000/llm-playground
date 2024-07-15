@@ -651,7 +651,7 @@ class DocReader(User):
         )
         store = LocalFileStore("./cache/")
 
-        # get client: TODO refactor
+        # get client: TODO use get_llm
         if self.config.use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
             print(
                 info("Azure chat api for embedding:"),
@@ -682,7 +682,7 @@ class DocReader(User):
             vectorstore.delete(vid)
         vectorstore.add_documents(docs)
 
-        # Retrieve and generate using the relevant snippets of the blog.
+        # Retrieve and generate using the relevant snippets
         retriever = vectorstore.as_retriever(
             search_kwargs={"k": self.max_n_context},
         )
