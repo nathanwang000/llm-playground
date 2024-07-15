@@ -10,7 +10,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from operator import itemgetter
-from typing import Any, List
+from typing import Any
 
 
 from const import EXCEPTION_PROMPT
@@ -20,10 +20,6 @@ from evaluation import chat_eval
 from langchain.embeddings import CacheBackedEmbeddings
 from langchain.storage import LocalFileStore
 from langchain_community.vectorstores import Chroma
-from langchain_openai import (
-    AzureOpenAIEmbeddings,
-    OpenAIEmbeddings,
-)
 from termcolor import colored
 from utils import (
     ChatVisionBot,

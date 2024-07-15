@@ -19,14 +19,6 @@ from typing import List, Set
 import openai
 import tqdm
 
-sys.path.append(
-    os.path.join(
-        os.path.dirname(__file__),
-    )
-)
-
-from const import EXCEPTION_PROMPT
-
 # for caching see https://shorturl.at/tHTV4
 from langchain_community.document_loaders import (
     PyPDFLoader,
@@ -45,8 +37,6 @@ from langchain_openai import (
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# local package to generate openai api from https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/generic-edisonai-prod/llm_idam_token_generator/llm_idam_token_generator-0.1.20240603070355.tar.gz
-from llm_idam_token_generator.idam_token_generator import get_llm_access_token
 from pdf2image import convert_from_path
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -61,6 +51,19 @@ from tenacity import (
     wait_exponential,
 )
 from termcolor import colored
+
+sys.path.append(
+    os.path.join(
+        os.path.dirname(__file__),
+    )
+)
+
+from const import EXCEPTION_PROMPT
+
+
+# local package to generate openai api from https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/generic-edisonai-prod/llm_idam_token_generator/llm_idam_token_generator-0.1.20240603070355.tar.gz
+from llm_idam_token_generator.idam_token_generator import get_llm_access_token
+
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)

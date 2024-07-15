@@ -1,5 +1,5 @@
 """
-TODO: Evaluation for a RAG system
+Evaluation for a RAG system
 question -> *retriever* -> context -> *generator* -> answer
 
 For each text node: question, context, answer
@@ -17,7 +17,7 @@ We need to evaluate the edge for correctness, etc.
   - For question->answer: f_answer_relevance(q, a) -> [float, Explanation]
 We can generalize this to an EdgeEval class
 
-TODO: the generalization of EdgeEval is ChatEval
+the generalization of EdgeEval is ChatEval
 - assume input and output are strings
 - can be created as a decorator function
 - get context from docstring, function signature, code body, etc.
@@ -48,12 +48,11 @@ class Query:
     def to_string(self):
         if self.question == "" and len(self.image_paths) == 0:
             return "no query provided"
-        elif self.question == "" and len(self.image_paths) != 0:
+        if self.question == "" and len(self.image_paths) != 0:
             return "images"
-        elif self.question != "" and len(self.image_paths) == 0:
+        if self.question != "" and len(self.image_paths) == 0:
             return self.question
-        else:
-            return f"input: ```{self.question}``` and images"
+        return f"input: ```{self.question}``` and images"
 
 
 def get_function_info(func: Callable) -> (str, str):
