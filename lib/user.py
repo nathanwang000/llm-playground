@@ -47,6 +47,7 @@ from utils import (
     join_list,
     partial_wrap,
     contain_private_method,
+    get_embedding_model_langchain,
 )
 
 
@@ -651,24 +652,10 @@ class DocReader(User):
         )
         store = LocalFileStore("./cache/")
 
-        # get client: TODO use get_llm
-        if self.config.use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
-            print(
-                info("Azure chat api for embedding:"),
-                "Don't sent personal info!"
-                " use toggle_settings config.use_azure to turn it off",
-            )
-            azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
-            api_key = os.environ.get("AZURE_CHAT_API_KEY")
-            api_version = os.environ.get("AZURE_CHAT_API_VERSION")
-            underlying_embeddings = AzureOpenAIEmbeddings(
-                api_key=api_key,
-                api_version=api_version,
-                azure_endpoint=azure_endpoint,
-                model="text-embedding-ada-002",
-            )
-        else:
-            underlying_embeddings = OpenAIEmbeddings()
+        underlying_embeddings = get_embedding_model_langchain(
+            use_azure=self.config.use_azure,
+            model=self.config.model,
+        )
 
         cached_embedder = CacheBackedEmbeddings.from_bytes_store(
             underlying_embeddings, store, namespace=underlying_embeddings.model

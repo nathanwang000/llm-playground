@@ -143,7 +143,6 @@ def check_relevance(
             system_prompt,
             stream=verbose,
             use_azure=use_azure,
-            use_vision=len(query.image_paths) > 0,
             model=model,
         )
     else:

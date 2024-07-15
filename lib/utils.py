@@ -157,7 +157,6 @@ def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md", use_azure=False) -> s
         print(image)
         bot = ChatVisionBot(
             "transcribe the image as markdown, keeping the structure of the document (e.g., heading and titles); Be sure to describe figures or visuals or embedded images in the format of '![<desc>](fake_url)'; The entire output will be interpreted as markdown, so don't wrap the output in ```markdown``` delimeter",
-            use_vision=True,
             use_azure=use_azure,
         )
 
@@ -187,7 +186,7 @@ def image2md(image_path, use_azure=False):
     img_name = os.path.basename(image_path).split(".")[0]
     output_fname = f"image_descs/{img_name}.md"
     if not os.path.exists(output_fname):
-        bot = ChatVisionBot(stream=True, use_azure=use_azure, use_vision=True)
+        bot = ChatVisionBot(stream=True, use_azure=use_azure)
         print(info(f"Desc of {image_path} as ctxt:"))
         image_desc = print_openai_stream(
             bot(
@@ -233,9 +232,14 @@ def parse_time_range_from_AI_message(message: AIMessage) -> DateRange:
 
 def get_embedding_model_langchain(use_azure=False, model="text-embedding-ada-002"):
     if use_azure:
+        print(
+            info("Azure chat api for embedding:"),
+            "Don't sent personal info!"
+            " use toggle_settings config.use_azure to turn it off",
+        )
         return AzureOpenAIEmbeddings(
             azure_deployment=os.environ["EMBEDDING_DEPLOYMENT_MODEL"],
-            api_key="xxx",  # This is not playing any role, but required as per OpenAI sdk. So any random could be passed.
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
             api_version=os.environ["EMBEDDING_AZURE_API_VERSION"],
             azure_endpoint=os.environ["EMBEDDING_ENDPOINT"],
             openai_api_type=os.environ["EMBEDDING_TYPE"],
@@ -250,8 +254,13 @@ def get_embedding_model_langchain(use_azure=False, model="text-embedding-ada-002
 
 def get_llm_langchain(use_azure=False, model="gpt-4o"):
     if use_azure:
+        print(
+            info("Azure for langchain model:"),
+            "Don't sent personal info!"
+            " use toggle_settings config.use_azure to turn it off",
+        )
         return AzureChatOpenAI(
-            api_key="xxx",  # This is not playing any role, but required as per OpenAI sdk. So any random could be passed.
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
             azure_endpoint=os.environ["OPENAI_ENDPOINT"],
             azure_deployment=os.environ["OPENAI_DEPLOYMENT_MODEL"],
             api_version=os.environ["OPENAI_AZURE_API_VERSION"],
@@ -266,8 +275,13 @@ def get_llm_langchain(use_azure=False, model="gpt-4o"):
 
 def get_llm_openai_client(use_azure=False):
     if use_azure:
+        print(
+            info("Azure for openai client:"),
+            "Don't sent personal info!"
+            " use toggle_settings config.use_azure to turn it off",
+        )
         return openai.AzureOpenAI(
-            api_key="xxx",  # This is not playing any role, but required as per OpenAI sdk. So any random could be passed.
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
             azure_endpoint=os.environ["OPENAI_ENDPOINT"],
             azure_deployment=os.environ["OPENAI_DEPLOYMENT_MODEL"],
             api_version=os.environ["OPENAI_AZURE_API_VERSION"],
@@ -308,27 +322,8 @@ def parse_time_range_from_query(
     )
     today = datetime.datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
 
-    # TODO: use get_llm_langchain
-    if use_azure and os.environ.get("AZURE_CHAT_API_KEY"):
-        print(
-            info("time parsing using Azure:"),
-            "Don't sent personal info!"
-            " use toggle_settings config.use_azure to turn it off",
-        )
-        azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
-        api_key = os.environ.get("AZURE_CHAT_API_KEY")
-        api_version = os.environ.get("AZURE_CHAT_API_VERSION")
-        model = os.environ.get("AZURE_CHAT_MODEL")
-        llm = AzureChatOpenAI(
-            api_key=api_key,
-            api_version=api_version,
-            azure_endpoint=azure_endpoint,
-            model_name=model,
-        )
-    else:
-        llm = ChatOpenAI(model_name=model)
+    llm = get_llm_langchain(use_azure=use_azure, model=model)
     chain = p | llm | parse_time_range_from_AI_message
-
     result = chain.invoke({"query": query, "today": today})
     print(info("parsed time range:"), result)
     return result
@@ -921,7 +916,6 @@ class ChatVisionBot:
         model="gpt-4o",
         stream=True,
         use_azure=False,
-        use_vision=False,  # default to chat api to save cost
         max_tokens=3000,
     ):
         self.model = model
@@ -930,43 +924,15 @@ class ChatVisionBot:
         self.use_azure = use_azure
         self.max_tokens = max_tokens
 
-        # TODO: use get_llm
-        # TODO: regenerate client each time it is called using getter and setter
-        if self.use_azure and os.environ.get("AZURE_VISION_API_KEY"):
-            if use_vision:
-                print(info("using Azure vision api for chatbot creation"))
-                proxies = {
-                    "http": "",
-                    "https": "",
-                }
-                openai.proxy = proxies
-                api_base = os.environ.get("AZURE_VISION_API_BASE")
-                api_key = os.environ.get("AZURE_VISION_API_KEY")
-                deployment_name = os.environ.get("AZURE_VISION_DEPLOYMENT_NAME")
-                api_version = os.environ.get("AZURE_VISION_API_VERSION")
-
-                self.client = openai.AzureOpenAI(
-                    api_key=api_key,
-                    api_version=api_version,
-                    base_url=f"{api_base}openai/deployments/{deployment_name}/extensions",
-                )
-            else:  # text chat only model
-                print(info("using Azure chat api for chatbot creation"))
-                azure_endpoint = os.environ.get("AZURE_CHAT_ENDPOINT")
-                api_key = os.environ.get("AZURE_CHAT_API_KEY")
-                api_version = os.environ.get("AZURE_CHAT_API_VERSION")
-                self.model = os.environ.get("AZURE_CHAT_MODEL")
-                self.client = openai.AzureOpenAI(
-                    azure_endpoint=azure_endpoint,
-                    api_key=api_key,
-                    api_version=api_version,
-                )
-        else:
-            self.client = openai.OpenAI()
         self.messages = []
         self.stream = stream
         if self.system:
             self.messages.append({"role": "system", "content": system})
+
+    @property
+    def client(self):
+        # regenerate an client each time so that access token is up to date
+        return get_llm_openai_client(use_azure=self.use_azure)
 
     def __call__(self, message, images=None):
         if images is None:
