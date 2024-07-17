@@ -491,7 +491,7 @@ def print_openai_stream(ans) -> str:
     # from https://cookbook.openai.com/examples/how_to_stream_completions
     if type(ans) is not openai.Stream:
         custom_print(ans)
-        return
+        return str(ans)
 
     collected_chunks = []
     collected_messages = []
@@ -963,7 +963,15 @@ class ChatVisionBot:
         )
 
         result = self.execute()
-        self.messages.append({"role": "assistant", "content": result})
+        if isinstance(result, str):
+            self.messages.append({"role": "assistant", "content": result})
+        else:
+            print(
+                info(
+                    "result in Bot is not a string, therefore no history used, you need to supply history manually, or set stream=False"
+                )
+            )
+
         return result
 
     def save_chat(self, filename=""):
