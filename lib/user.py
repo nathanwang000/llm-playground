@@ -60,6 +60,7 @@ class UserConfig:
     use_azure: bool = False
     # convert pdf to md
     convert_pdf2md: bool = False
+    eval_context_relevance: bool = True
 
 
 class User:
@@ -310,10 +311,14 @@ class User:
         )
 
     def rag_call(self, prompt: str):
-        context, meta_data = chat_eval(
-            self.get_context,
-            use_azure=self.config.use_azure,
-        )(prompt)
+        get_context = self.get_context
+        if self.config.eval_context_relevance:
+            get_context = chat_eval(
+                self.get_context,
+                use_azure=self.config.use_azure,
+            )
+
+        context, meta_data = get_context(prompt)
         print(
             info("src of retrieved context:"),
             pprint.pformat(meta_data),

@@ -14,7 +14,7 @@ import sys
 import tempfile
 from collections import namedtuple
 from collections.abc import Mapping
-from typing import List, Set
+from typing import List, Set, Callable, Tuple
 
 import openai
 import tqdm
@@ -791,16 +791,17 @@ def partial_wrap(f, *pargs, add_note=True, **pkwargs):
     return _f
 
 
-def join_list(item, list):
+def join_list(item: str, l: List[str]) -> List[str]:
     """list version of "".join(List[str])
     >>> join_list(' ', ['a', 'b', 'c'])
     ['a', ' ', 'b', ' ', 'c']
     """
     res = []
-    for i in list:
+    for i in l:
         res.append(i)
         res.append(item)
-    return res[:-1]  # get rid of the last item
+    # get rid of the last item
+    return res[:-1]
 
 
 def contain_private_method(attr_path: List[str]) -> bool:
