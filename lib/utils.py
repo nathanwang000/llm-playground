@@ -938,18 +938,27 @@ class ChatVisionBot:
         # regenerate an client each time so that access token is up to date
         return get_llm_openai_client(use_azure=self.use_azure)
 
-    def __call__(self, message, images=None):
+    def __call__(
+        self,
+        message: str,
+        images: List[str] = None,
+        message_to_save: str = None,
+    ):
+        """
+        message_to_save default to message if not provided
+        it is the string to be saved into self.messages
+        """
         if images is None:
             images = []
+
+        if not message_to_save:
+            message_to_save = message
 
         self.messages.append(
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "text",
-                        "text": message,
-                    },
+                    {"type": "text", "text": message_to_save},
                     *[
                         {
                             "type": "image_url",

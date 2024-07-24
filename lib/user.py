@@ -310,7 +310,7 @@ class User:
             "get_context method not implemented, should be implemented in the subclass"
         )
 
-    def rag_call(self, prompt: str):
+    def rag_call(self, query: str):
         get_context = self.get_context
         if self.config.eval_context_relevance:
             get_context = chat_eval(
@@ -318,7 +318,7 @@ class User:
                 use_azure=self.config.use_azure,
             )
 
-        context, meta_data = get_context(prompt)
+        context, meta_data = get_context(query)
         print(
             info("src of retrieved context:"),
             pprint.pformat(meta_data),
@@ -326,16 +326,17 @@ class User:
 
         if not context:
             print(EXCEPTION_PROMPT, "no context found")
-        prompt = f"Context: {context}\n\nQuestion: {prompt}"
+        prompt = f"Context: {context}\n\nQuestion: {query}"
         print(info("done retrieving relevant context"))
 
         if self.config.show_context:
             print(info("Context:\n"), context)
 
-        # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
-        # so far mp based method have pickle issues
         try:
-            result = self.chatbot(prompt)
+            result = self.chatbot(
+                prompt,
+                message_to_save=query,
+            )
         except KeyboardInterrupt:
             print(
                 EXCEPTION_PROMPT,
