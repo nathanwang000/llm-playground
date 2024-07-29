@@ -954,25 +954,29 @@ class ChatVisionBot:
         if not message_to_save:
             message_to_save = message
 
-        self.messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": message_to_save},
-                    *[
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": encode_image_path(image_url),
-                            },
-                        }
-                        for image_url in images
-                    ],
+        new_message = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": message},
+                *[
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": encode_image_path(image_url),
+                        },
+                    }
+                    for image_url in images
                 ],
-            }
-        )
+            ],
+        }
 
+        self.messages.append(new_message)
+        # print(info("before"), self.messages)
         result = self.execute()
+        # modify to only save desired message
+        new_message["content"][0]["text"] = message_to_save
+        # print(info("after"), self.messages)
+
         if isinstance(result, str):
             self.messages.append({"role": "assistant", "content": result})
         else:
