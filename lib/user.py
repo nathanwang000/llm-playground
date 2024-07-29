@@ -289,9 +289,9 @@ class User:
             return RTNCompleter(
                 # TODO: for each known action, add an optional RTN
                 toggle_settings_rtn()
-                # <command> <path>
-                | (C_add(self.known_actions.keys()) * C(" ") * path_rtn)
-                # | <anything> <path>
+                # <command> <path>; try even if first success
+                + (C_add(self.known_actions.keys()) * C(" ") * path_rtn)
+                # | <anything> <path>; only try when above 2 fails
                 | (C_regex("\S+ ") * path_rtn)
             )
         except Exception as e:
