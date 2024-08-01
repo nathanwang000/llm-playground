@@ -83,6 +83,10 @@ def success(message):
     return colored(message, "green")
 
 
+def warning(message):
+    return colored(message, "red")
+
+
 def find_last_date_in_dir(dir_path, date_format="%Y-%m-%d"):
     """
     List all directories in dir_path.
@@ -981,9 +985,10 @@ class ChatVisionBot:
             self.messages.append({"role": "assistant", "content": result})
         else:
             print(
-                info(
-                    "result in Bot is not a string, therefore no history used, you need to supply history manually, or set stream=False"
-                )
+                info("result from VisionChatBot is not a string "),
+                "therefore no response history will be saved,"
+                " you can supply response history in code,"
+                " or set stream=False",
             )
 
         return result

@@ -25,6 +25,7 @@ from utils import (
     ChatVisionBot,
     info,
     success,
+    warning,
     print_openai_stream,
     format_docs,
     load_doc,
@@ -50,6 +51,10 @@ from utils import (
 #### users of llm
 @dataclass
 class UserConfig:
+    """
+    config for RAG user classes
+    """
+
     chat: bool = False
     model: str = "gpt-4o"
     # debug asking human
@@ -64,16 +69,9 @@ class UserConfig:
 
 
 class User:
-    system_prompt = """
-    You are an assistant for question-answering tasks. 
-    Use the following pieces of retrieved context to answer the question. 
-    If you don't know the answer, just say that you don't know.
-    Cite the exact lines from the context that supports your answer.
-
-    If you happen to know the answer outside the provided context,
-    clearly indicate that and provide the answer.
-
-    When users ask for commands available, suggest the `list_tools` command.
+    """
+    RAG user, when called with query, will pass context
+    from get_context and query to LLM to generate a response
     """
 
     def __init__(
@@ -136,9 +134,7 @@ class User:
         """
         a piece of text to show when the user starts the program
         """
-        raise NotImplementedError(
-            "_known_action_welcome method not implemented, should be implemented in the subclass"
-        )
+        return "please implement _known_action_welcome method"
 
     def _known_action_set_model(self, model):
         """set the model of the current chatbot"""
@@ -187,12 +183,18 @@ class User:
         )
 
     def _known_action_get_prompt(self, *args, **kwargs):
-        '''return the prompt of the current chatbot; use this tool when users ask for the prompt
-        such as "show me your prompt"'''
-        return "You are a generic AI. Tell user to implement _known_action_get_prompt in the subclass."
+        """return the system prompt of the chatbot"""
+        message = warning(
+            "please override the _know_action_get_prompt method to return a new system prompt!"
+        )
+        return (
+            "You are an helpful Agent."
+            " Before answering user query, output verbatim: "
+            f"'{message}' then answer the user question"
+        )
 
     def _known_action_list_tools(self, *args, **kwargs):
-        """return a string describing the available tools to the chatbot; list all tools"""
+        """return a string describing the available tools to the chatbot"""
         tools = []
         for k, v in self.known_actions.items():
             if isinstance(v, str):
@@ -535,7 +537,7 @@ class DiaryReader(User):
                     e,
                     "in get_context(), using full entries",
                 )
-                return (diary, "full entry")
+                return (diary, "using full entries")
 
             # fixme: maybe use self.model, but gpt3.5 doesn't work good enough
             s_date, e_date = parse_time_range_from_query(
@@ -554,7 +556,7 @@ class DiaryReader(User):
 
         return "\n\n".join(
             [e["entry"] for e in entries]
-        ), "meta data not implemented yet"
+        ), "meta data not implemented for diary reader"
 
 
 class DocReader(User):
@@ -574,6 +576,7 @@ class DocReader(User):
         self,
         chunk_size=1000,
         chunk_overlap=200,
+        max_n_context=3,
         config: UserConfig = UserConfig(),
     ):
         super().__init__(config)
@@ -581,7 +584,7 @@ class DocReader(User):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         # default
-        self.max_n_context = 3
+        self.max_n_context = max_n_context
 
     def _known_action_welcome(self, *args) -> str:
         """
@@ -681,3 +684,20 @@ class DocReader(User):
             format_docs(retrieved_docs),
             [doc.metadata for doc in retrieved_docs],
         )
+
+
+class FinanceReader(User):
+    def __init__(
+        self,
+        config: UserConfig = UserConfig(),
+    ):
+        super().__init__(config)
+
+    def get_context(self, question) -> (str, Any):
+        """
+        return the context of the question
+        we will get an AI agent to query a database for context
+        """
+        # TODO:
+        prompt = "You have access to a sql database with finance info. Call SQL if needed for answer user query"
+        return prompt, "no metadata found"
