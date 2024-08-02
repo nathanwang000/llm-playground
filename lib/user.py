@@ -4,6 +4,7 @@ import functools
 import yaml
 import json
 import os
+import duckdb
 import datetime
 import pprint
 import re
@@ -690,16 +691,24 @@ class DocReader(User):
 class FinanceReader(User):
     def __init__(
         self,
+        stmt_csv_directory: str = "../parse/finance/chase_statements/",
         n_chatbot_rounds=5,
         config: UserConfig = UserConfig(),
     ):
+        # TODO: handle non csv files
         super().__init__(config)
         self.n_chatbot_rounds = n_chatbot_rounds
+        self.stmt_csv_directory = stmt_csv_directory
+        for fname in os.listdir(stmt_csv_directory):
+            if fname.lower().endswith(".csv"):
+                self.config.fnames.add(os.path.join(stmt_csv_directory, fname))
 
     def _known_action_welcome(self) -> str:
         return (
-            "You can ask all personalized questions about finance"
-            "like your monthly spending by category"
+            "You can ask all personalized questions about finance\n"
+            "like your monthly spending by category\n"
+            "I'm using the following csv files to answer your questions:\n"
+            f"{self.config.fnames}"
         )
 
     def get_context(self, question) -> (str, Any):
@@ -708,21 +717,24 @@ class FinanceReader(User):
         we will get an AI agent to query a database for context
         """
         n_iterations = self.n_chatbot_rounds
-        # TODO: make this more general by parsing statments as fnames
-        # TODO: support more than 1 files with potentially different schema
-        # TODO: handle non csv files
-        doc_path = "../parse/finance/chase_statements/Chase1852_Activity20210610_20220624_20220624.CSV"
-        doc_df = pd.read_csv(doc_path)
+        dfs = [pd.read_csv(fname) for fname in self.config.fnames]
+
+        df_snapshots = [df.head().to_string() for df in dfs]
+        df_snapshots_str = ""
+        for i, snapshot in enumerate(df_snapshots):
+            df_snapshots_str += f"df[{i}]:\n {snapshot}\n\n"
+
         system_prompt = (
             "User will ask you about personalized finance question.\n"
-            "You are given a dataframe containing user banking information."
-            f"Here are some sample data:\n\n {doc_df.head().to_string()}\n"
-            "The data loaded into duckdb database where the table is named 'doc_df'.\n"
-            "e.g., you could do `SELECT * FROM doc_df LIMIT 5`\n"
-            "duckdb sql syntax for date manipulation coulde be a bit different from regular db.\n"
-            "For example `STRFTIME(current_date - INTERVAL 1 MONTH, '%Y-%m')` to get the current date - 1 month in 'YYYY-MM' format.\n"
+            "You are given a list of dataframes containing user banking statement."
+            f"Here are snapshot of each dataframe\n\n {df_snapshots_str}\n"
+            f"The data is loaded into duckdb database where you can access each dataframe as table_i where i runs from 0 to {len(dfs)-1}.\n"
+            "e.g., you could do `SELECT * FROM table_0 LIMIT 5`\n"
+            "duckdb sql syntax for date manipulation is different from regular sql.\n"
+            "For example use `STRFTIME(current_date - INTERVAL 1 MONTH, '%Y-%m')` to get the current date - 1 month in 'YYYY-MM' format.\n"
             "Remember for date field, you may need to convert it to datetime format first.\n"
             "For example, STRFTIME(STRPTIME('6/10/2022', '%m/%d/%Y'), '%Y-%m') will convert the date to 2022-6\n"
+            f"You are given {self.n_chatbot_rounds} rounds to interact with user; so choose your resonse wisely (e.g., you can use join stmt to maximize the information you get in each round)"
         )
 
         print(info("system prompt:"))
@@ -742,10 +754,13 @@ class FinanceReader(User):
         question2code_prompt = (
             f"{question_prompt}"
             "Now write a duckdb sql statment to collect information you need.\n"
+            f"Remember you can access tables from table_0 to table_{len(dfs)-1}\n"
+            f"You have {self.n_chatbot_rounds} rounds to interact with the user; \n"
+            "choose your response wisely (e.g., you can use join stmt to maximize information in each round)\n"
             "Your code should be enclosed in a ``` block\n"
             "Example code\n"
             "```\n"
-            "SELECT * FROM doc_df\n"
+            "SELECT * FROM table_0\n"
             "```\n"
             "The user will supply you the output running your code."
         )
@@ -763,11 +778,14 @@ class FinanceReader(User):
             return matches[0]
 
         # run code (need to check for safety)
-        def run_sql_df(code: str) -> str:
-            import duckdb
+        con = duckdb.connect()
+        for i, df in enumerate(dfs):
+            table_name = f"table_{i}"
+            con.register(table_name, df)
 
+        def run_sql_df(con, code: str) -> str:
             try:
-                code_result = str(duckdb.query(code).df())
+                code_result = str(con.sql(code).df())
             except Exception as e:
                 code_result = str(e)
             return code_result
@@ -781,7 +799,7 @@ class FinanceReader(User):
             print(code)
             print(info("code block end"))
 
-            code_feedback = run_sql_df(code)
+            code_feedback = run_sql_df(con, code)
             print(info("code response:"))
             print(code_feedback)
 
@@ -804,6 +822,7 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
         print(info("saving finance bot history"))
         bot.save_chat()
         # return code_str, "no metadata found"
+        con.close()  # close db connection
         return bot.messages, "no metadata found"
 
     def _known_action_get_prompt(self) -> str:
