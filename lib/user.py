@@ -714,8 +714,10 @@ class FinanceReader(User):
             f"{self.config.fnames}"
         )
 
-    def get_context(self, question) -> (str, Any):
+    def get_context_code(self, question) -> (str, Any):
         """
+        code version of get context (not properly working yet)
+
         return the context of the question
         """
         n_iterations = self.n_chatbot_rounds
@@ -847,10 +849,8 @@ Remember to start response with yes if you want your generated code to be execut
         # return code_str, "no metadata found"
         return bot.messages, "no metadata found"
 
-    def get_context_sql(self, question) -> (str, Any):
+    def get_context(self, question) -> (str, Any):
         """
-        DEPRECATED
-
         return the context of the question
         we will get an AI agent to query a database for context
         """
