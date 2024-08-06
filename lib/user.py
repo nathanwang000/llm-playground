@@ -5,6 +5,8 @@ import yaml
 import json
 import os
 import duckdb
+import io
+import contextlib
 import datetime
 import pprint
 import re
@@ -13,6 +15,7 @@ import pandas as pd
 from dataclasses import dataclass, field
 from operator import itemgetter
 from typing import Any
+from asteval import Interpreter
 
 
 from const import EXCEPTION_PROMPT
@@ -695,10 +698,10 @@ class FinanceReader(User):
         n_chatbot_rounds=5,
         config: UserConfig = UserConfig(),
     ):
-        # TODO: handle non csv files
         super().__init__(config)
         self.n_chatbot_rounds = n_chatbot_rounds
         self.stmt_csv_directory = stmt_csv_directory
+        # TODO: allow non csv files
         for fname in os.listdir(stmt_csv_directory):
             if fname.lower().endswith(".csv"):
                 self.config.fnames.add(os.path.join(stmt_csv_directory, fname))
