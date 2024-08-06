@@ -714,6 +714,141 @@ class FinanceReader(User):
     def get_context(self, question) -> (str, Any):
         """
         return the context of the question
+        """
+        n_iterations = self.n_chatbot_rounds
+        csv_files = list(
+            filter(
+                lambda x: x.lower().endswith("csv"),
+                self.config.fnames,
+            )
+        )
+        dfs = [pd.read_csv(fname) for fname in csv_files]
+
+        df_snapshots = [df.head().to_string() for df in dfs]
+        df_snapshots_str = ""
+        for i, snapshot in enumerate(df_snapshots):
+            df_snapshots_str += f"filename: '{csv_files[i]}'\n {snapshot}\n\n"
+
+        system_prompt = (
+            "Your job is to answer user question.\n"
+            "You are given a list of dataframes.\n"
+            f"When loaded as dataframes they look like: \n\n{df_snapshots_str}\n"
+            f"You are given {self.n_chatbot_rounds} rounds to interact with user.\n"
+            "Choose your resonse wisely to maximize information gathered in each round\n"
+        )
+
+        print(info("system prompt:"))
+        print(system_prompt)
+
+        bot = ChatVisionBot(
+            system_prompt,
+            model=self.config.model,
+            use_azure=self.config.use_azure,
+            stream=False,
+        )
+
+        question_prompt = (
+            "=====question start=====\n" f"{question}\n" "=====question end=====\n\n"
+        )
+
+        question2code_prompt = (
+            f"{question_prompt}"
+            "Now write python code to collect information you need.\n"
+            "For safty, don't use import statements and do not write to files.\n"
+            "You can read files. The execution environment is preloaded with the following imports:\n"
+            "import numpy as np; import pandas as pd; import plotext as plt\n"
+            "remember to first load the cvs file into a dataframe\n"
+            "Your code should be enclosed in a ``` block\n"
+            "Example code\n"
+            "```\n"
+            "df = pd.read_csv('filename')\n"
+            "plt.plot([1,2,3], label='sample')\nplt.show()\n"
+            "```\n"
+            "The user will supply you all the printed information running your code.\n"
+            "Note that each code run will start fresh, meaning variables defined in a previous code run is lost and need to be redefined\n"
+        )
+        code_str = bot(question2code_prompt)
+        print(info("q2code prompt:"))
+        print(question2code_prompt)
+
+        def parse_code(text: str):
+            """
+            get all strings enclosed in ```
+            ignoring the language specifier
+            """
+            pattern = r"```(?:\w+\n)?(.*?)```"
+            matches = re.findall(pattern, text, re.DOTALL)
+            return matches[0]
+
+        # run code (use asteval to be safe)
+        def run_code(code: str) -> str:
+            # Create StringIO objects to capture output
+            stdout_capture = io.StringIO()
+
+            aeval = Interpreter(builtins_readonly=True, writer=stdout_capture)
+            aeval.symtable.update(
+                {
+                    "np": __import__("numpy"),
+                    "pd": __import__("pandas"),
+                    "plt": __import__("plotext"),
+                }
+            )
+
+            # Redirect stdout and stderr to the StringIO objects
+            with contextlib.redirect_stdout(stdout_capture):
+                # this call help capture plotext output
+                result = aeval(code)
+
+            # Get the captured output
+            captured_stdout = stdout_capture.getvalue()
+            captured_stderr = [error.get_error() for error in aeval.error]
+            output = f"Stdout:\n{captured_stdout}\nStderr:\n{captured_stderr}"
+            return output
+
+        # pass output to llm
+        for i in range(n_iterations):
+            print(info(f"running code iteration {i+1}/{n_iterations}"))
+
+            code = parse_code(code_str)
+            print(info("code block start"))
+            print(code)
+            print(info("code block end"))
+
+            code_feedback = run_code(code)
+            feedback_prompt = f"""here's result of running your code
+=== start of code result ===
+{code_feedback}
+=== end of code result ===
+
+do you need more information?
+If so, start your response with yes, then give an explaination, followed
+by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain why not, and summarize all information you gathered.
+Remember to start response with yes if you want your generated code to be executed.                                 
+             """
+            print(info("feedback prompt:"))
+            print(feedback_prompt)
+
+            code_str = bot(feedback_prompt)
+
+            print(info("bot response"))
+            print(code_str)
+
+            if code_str.lower().startswith("no"):
+                code_feedback = run_code(parse_code(code_str))
+                print("code feedback:")
+                print(code_feedback)
+                break
+
+        print(info("saving coder bot history"))
+        bot.save_chat()
+        # return code_str, "no metadata found"
+        return bot.messages, "no metadata found"
+
+    def get_context_sql(self, question) -> (str, Any):
+        """
+        DEPRECATED
+
+        return the context of the question
         we will get an AI agent to query a database for context
         """
         n_iterations = self.n_chatbot_rounds
