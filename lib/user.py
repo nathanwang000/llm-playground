@@ -14,7 +14,7 @@ import subprocess
 import pandas as pd
 from dataclasses import dataclass, field
 from operator import itemgetter
-from typing import Any
+from typing import Any, List, Tuple
 from asteval import Interpreter
 
 
@@ -714,7 +714,7 @@ class FinanceReader(User):
             f"{self.config.fnames}"
         )
 
-    def get_context_code(self, question) -> (str, Any):
+    def get_context(self, question) -> (str, Any):
         """
         code version of get context (not properly working yet)
 
@@ -739,7 +739,7 @@ class FinanceReader(User):
             "You are given a list of dataframes.\n"
             f"When loaded as dataframes they look like: \n\n{df_snapshots_str}\n"
             f"You are given {self.n_chatbot_rounds} rounds to interact with user.\n"
-            "Choose your resonse wisely to maximize information gathered in each round\n"
+            "Choose your resonse wisely to maximize information gathered in each round.\n"
         )
 
         print(info("system prompt:"))
@@ -756,21 +756,26 @@ class FinanceReader(User):
             "=====question start=====\n" f"{question}\n" "=====question end=====\n\n"
         )
 
+        code_rule = """
+For safty, we do not allow import statments and writing to files, but file read is allowed.
+The execution environment is preloaded with the following imports:
+import numpy as np; import pandas as pd; import plotext as plt
+remember to first load the cvs files into a dataframe.
+Your code should be enclosed in a ``` block
+Example code
+```
+df = pd.read_csv('filename')
+plt.plot([1,2,3], label='sample')
+plt.show()
+```
+Use print() to print out all info you want to collect.
+Note that your code will be run from scratch, so redefine all variables!
+"""
+
         question2code_prompt = (
             f"{question_prompt}"
             "Now write python code to collect information you need.\n"
-            "For safty, don't use import statements and do not write to files.\n"
-            "You can read files. The execution environment is preloaded with the following imports:\n"
-            "import numpy as np; import pandas as pd; import plotext as plt\n"
-            "remember to first load the cvs file into a dataframe\n"
-            "Your code should be enclosed in a ``` block\n"
-            "Example code\n"
-            "```\n"
-            "df = pd.read_csv('filename')\n"
-            "plt.plot([1,2,3], label='sample')\nplt.show()\n"
-            "```\n"
-            "The user will supply you all the printed information running your code.\n"
-            "Note that each code run will start fresh, meaning variables defined in a previous code run is lost and need to be redefined\n"
+            f"{code_rule}"
         )
         code_str = bot(question2code_prompt)
         print(info("q2code prompt:"))
@@ -783,6 +788,8 @@ class FinanceReader(User):
             """
             pattern = r"```(?:\w+\n)?(.*?)```"
             matches = re.findall(pattern, text, re.DOTALL)
+            if len(matches) == 0:
+                return ""
             return matches[0]
 
         # run code (use asteval to be safe)
@@ -802,13 +809,19 @@ class FinanceReader(User):
             # Redirect stdout and stderr to the StringIO objects
             with contextlib.redirect_stdout(stdout_capture):
                 # this call help capture plotext output
-                result = aeval(code)
+                aeval(code)
 
             # Get the captured output
             captured_stdout = stdout_capture.getvalue()
-            captured_stderr = [error.get_error() for error in aeval.error]
-            output = f"Stdout:\n{captured_stdout}\nStderr:\n{captured_stderr}"
-            return output
+
+            def pretty_format_error(error: List[Tuple[str]]) -> str:
+                return "\n".join(["\n".join(tpl) for tpl in error])
+
+            captured_stderr = pretty_format_error(
+                [error.get_error() for error in aeval.error]
+            )
+
+            return captured_stdout, captured_stderr
 
         # pass output to llm
         for i in range(n_iterations):
@@ -819,37 +832,45 @@ class FinanceReader(User):
             print(code)
             print(info("code block end"))
 
-            code_feedback = run_code(code)
+            code_stdout, code_stderr = run_code(code)
+
+            code_feedback = f"stdout:\n{code_stdout}\nstderr:\n{code_stderr}"
             feedback_prompt = f"""here's result of running your code
 === start of code result ===
 {code_feedback}
 === end of code result ===
 
 do you need more information?
+
 If so, start your response with yes, then give an explaination, followed
-by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain why not, and summarize all information you gathered.
-Remember to start response with yes if you want your generated code to be executed.                                 
+by a revised code enclosed in ``` block.
+
+Remember to follow the coding rules:
+{code_rule}
+                                 
+If you don't need to gather more info, start response with no and explain.
              """
             print(info("feedback prompt:"))
             print(feedback_prompt)
 
-            code_str = bot(feedback_prompt)
+            if (
+                code.strip() == "" or code_stderr == ""
+            ) and code_str.lower().startswith("no"):
+                # no error and no more info needed from last round
+                # only record the message, don't execute llm
+                bot(code_feedback, record_user_message_only=True)
+                break
 
+            code_str = bot(feedback_prompt)
             print(info("bot response"))
             print(code_str)
-
-            if code_str.lower().startswith("no"):
-                code_feedback = run_code(parse_code(code_str))
-                print("code feedback:")
-                print(code_feedback)
-                break
 
         print(info("saving coder bot history"))
         bot.save_chat()
         # return code_str, "no metadata found"
         return bot.messages, "no metadata found"
 
-    def get_context(self, question) -> (str, Any):
+    def get_context_sql(self, question) -> (str, Any):
         """
         return the context of the question
         we will get an AI agent to query a database for context
@@ -913,6 +934,8 @@ Remember to start response with yes if you want your generated code to be execut
             """
             pattern = r"```(?:\w+\n)?(.*?)```"
             matches = re.findall(pattern, text, re.DOTALL)
+            if len(matches) == 0:
+                return ""
             return matches[0]
 
         # run code (need to check for safety)
@@ -921,12 +944,13 @@ Remember to start response with yes if you want your generated code to be execut
             table_name = f"table_{i}"
             con.register(table_name, df)
 
-        def run_sql_df(con, code: str) -> str:
+        def run_sql_df(con, code: str) -> (str, str):
+            stdout_str, stderr_str = "", ""
             try:
-                code_result = str(con.sql(code).df())
+                stdout_str = str(con.sql(code).df())
             except Exception as e:
-                code_result = str(e)
-            return code_result
+                stderr_str = str(e)
+            return stdout_str, stderr_str
 
         # pass output to llm
         for i in range(n_iterations):
@@ -937,9 +961,18 @@ Remember to start response with yes if you want your generated code to be execut
             print(code)
             print(info("code block end"))
 
-            code_feedback = run_sql_df(con, code)
+            code_stdout, code_stderr = run_sql_df(con, code)
+            code_feedback = code_stdout if code_stdout != "" else code_stderr
             print(info("code response:"))
             print(code_feedback)
+
+            if (
+                code.strip() == "" or code_stderr == ""
+            ) and code_str.lower().startswith("no"):
+                # no error and no more info needed from last round
+                # only record the message, don't execute llm
+                bot(code_feedback, record_user_message_only=True)
+                break
 
             code_str = bot(f"""here's result of running your code
 === start of code result ===
@@ -953,9 +986,6 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
 
             print(info("bot response"))
             print(code_str)
-
-            if code_str.lower().startswith("no"):
-                break
 
         print(info("saving finance bot history"))
         bot.save_chat()

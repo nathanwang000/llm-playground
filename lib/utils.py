@@ -947,10 +947,14 @@ class ChatVisionBot:
         message: str,
         images: List[str] = None,
         message_to_save: str = None,
+        record_user_message_only: bool = False,
     ):
         """
         message_to_save default to message if not provided
         it is the string to be saved into self.messages
+
+        record_user_message_only:
+        if true, do not ask llm and just record user message
         """
         if images is None:
             images = []
@@ -975,11 +979,12 @@ class ChatVisionBot:
         }
 
         self.messages.append(new_message)
-        # print(info("before"), self.messages)
-        result = self.execute()
+        if not record_user_message_only:
+            result = self.execute()
+        else:
+            result = ""
         # modify to only save desired message
         new_message["content"][0]["text"] = message_to_save
-        # print(info("after"), self.messages)
 
         if isinstance(result, str):
             self.messages.append({"role": "assistant", "content": result})
