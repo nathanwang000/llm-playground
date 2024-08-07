@@ -699,6 +699,7 @@ class FinanceReader(User):
         config: UserConfig = UserConfig(),
     ):
         super().__init__(config)
+        self.context_use_code = False
         self.n_chatbot_rounds = n_chatbot_rounds
         self.stmt_csv_directory = stmt_csv_directory
         # TODO: allow non csv files
@@ -756,10 +757,11 @@ class FinanceReader(User):
             "=====question start=====\n" f"{question}\n" "=====question end=====\n\n"
         )
 
+        # was using plotext but llm don't know it well
         code_rule = """
 For safty, we do not allow import statments and writing to files, but file read is allowed.
 The execution environment is preloaded with the following imports:
-import numpy as np; import pandas as pd; import plotext as plt
+import numpy as np; import pandas as pd; import matplotlib.pyplot as plt
 remember to first load the cvs files into a dataframe.
 Your code should be enclosed in a ``` block
 Example code
@@ -798,17 +800,20 @@ Note that your code will be run from scratch, so redefine all variables!
             stdout_capture = io.StringIO()
 
             aeval = Interpreter(builtins_readonly=True, writer=stdout_capture)
+            import matplotlib.pyplot as plt
+
             aeval.symtable.update(
                 {
                     "np": __import__("numpy"),
                     "pd": __import__("pandas"),
-                    "plt": __import__("plotext"),
+                    # "plt": __import__("plotext"),
+                    "plt": plt,
                 }
             )
 
             # Redirect stdout and stderr to the StringIO objects
             with contextlib.redirect_stdout(stdout_capture):
-                # this call help capture plotext output
+                # this call help capture plt output
                 aeval(code)
 
             # Get the captured output
@@ -870,7 +875,7 @@ If you don't need to gather more info, start response with no and explain.
         # return code_str, "no metadata found"
         return bot.messages, "no metadata found"
 
-    def get_context(self, question) -> (str, Any):
+    def get_context_sql(self, question) -> (str, Any):
         """
         return the context of the question
         we will get an AI agent to query a database for context
@@ -992,6 +997,12 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
         # return code_str, "no metadata found"
         con.close()  # close db connection
         return bot.messages, "no metadata found"
+
+    def get_context(self, question) -> (str, Any):
+        if self.context_use_code:
+            return self.get_context_code(question)
+        else:
+            return self.get_context_sql(question)
 
     def _known_action_get_prompt(self) -> str:
         return """Answer user questions based on the context given"""
