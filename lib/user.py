@@ -714,7 +714,7 @@ class FinanceReader(User):
             f"{self.config.fnames}"
         )
 
-    def get_context(self, question) -> (str, Any):
+    def get_context_code(self, question) -> (str, Any):
         """
         code version of get context (not properly working yet)
 
@@ -793,7 +793,7 @@ Note that your code will be run from scratch, so redefine all variables!
             return matches[0]
 
         # run code (use asteval to be safe)
-        def run_code(code: str) -> str:
+        def run_code(code: str) -> (str, str):
             # Create StringIO objects to capture output
             stdout_capture = io.StringIO()
 
@@ -870,7 +870,7 @@ If you don't need to gather more info, start response with no and explain.
         # return code_str, "no metadata found"
         return bot.messages, "no metadata found"
 
-    def get_context_sql(self, question) -> (str, Any):
+    def get_context(self, question) -> (str, Any):
         """
         return the context of the question
         we will get an AI agent to query a database for context
