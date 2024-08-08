@@ -287,19 +287,25 @@ class User:
                 return C_mul(["toggle_settings", " "]) * C_add(
                     [
                         C_mul(join_list(".", attr_path))
-                        for attr_path, value in gen_attr_paths_value(self, [], set())
+                        for attr_path, value in gen_attr_paths_value(
+                            self,
+                            [],
+                            set(),
+                        )
                         if isinstance(value, bool)
                         and not contain_private_method(attr_path)
                     ]
                 )
 
+            other_actions = set(self.known_actions.keys()) - set(("toggle_settings",))
+
             return RTNCompleter(
                 # TODO: for each known action, add an optional RTN
                 toggle_settings_rtn()
                 # <command> <path>; try even if first success
-                + (C_add(self.known_actions.keys()) * C(" ") * path_rtn)
+                + (C_add(other_actions) * C(" ") * path_rtn)
                 # | <anything> <path>; only try when above 2 fails
-                | (C_regex("\S+ ") * path_rtn)
+                | (C_regex(r"\S+ ") * path_rtn)
             )
         except Exception as e:
             print(
