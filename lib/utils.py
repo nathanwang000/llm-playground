@@ -646,7 +646,9 @@ def load_doc(
                 loader = PyPDFLoader(fname)
         elif ext in ["txt", "org"]:
             loader = TextLoader(fname)
-        elif ext in ["md"]:
+        elif ext in ["md", "json"]:
+            # I don't want to use the json loader
+            # b/c it requires knowning what is content using jq
             loader = UnstructuredMarkdownLoader(fname)
         elif ext in ["jpeg", "png", "jpg"]:
             output_fname = image2md(fname, use_azure=use_azure)
