@@ -126,14 +126,14 @@ class User:
 
         # reset chatbot: human for debugging
         if self.config.human:
-            self.chatbot = human_llm
+            self._chatbot = human_llm
         else:
-            self.chatbot = ChatVisionBot(
+            self._chatbot = ChatVisionBot(
                 self._known_action_get_prompt(),
                 model=self.config.model,
                 use_azure=self.config.use_azure,
             )
-            self.known_actions["save_chat"] = self.chatbot.save_chat
+            self.known_actions["save_chat"] = self._chatbot.save_chat
 
     def _known_action_welcome(self, *args) -> str:
         """
@@ -141,50 +141,77 @@ class User:
         """
         return "please implement _known_action_welcome method"
 
-    def _known_action_set_model(self, model):
-        """set the model of the current chatbot"""
-        self.config.model = model
-        self._reset()
-        return f"set model to {model}"
-
-    def _known_action_toggle_settings(self, setting_name):
+    def _known_action_set_option(self, setting_name_value):
         """
-        toggle the setting value, allows setting nested values (separated by '.')
+        set option of the class
+        if no value provided, default to toggle the setting
+        otherwise set the setting to the value provide
+        allows setting nested values (separated by '.')
+        value to the setting is assumed to be string
 
         >>> user = User()
         >>> user.config.use_azure = False
-        >>> user._known_action_toggle_settings('config.use_azure')
+        >>> user._known_action_set_option('config.use_azure')
         'setting config.use_azure from False->True'
+        >>> user.config.model = 'gpt-3.5-turbo'
+        >>> user._known_action_set_option('config.model = gpt-4o')
+        'setting config.model from gpt-3.5-turbo->gpt-4o'
         """
         last_name = None
         parent = None
         obj = self
+
+        setting_name = setting_name_value.split("=")[0].strip()
+        setting_value = (
+            setting_name_value.split("=")[1].strip()
+            if "=" in setting_name_value
+            else None
+        )
         for name in setting_name.split("."):
             parent = obj
             last_name = name
             obj = getattr(obj, name, None)
             if obj is None:
-                return f"{EXCEPTION_PROMPT}: {setting_name} does not exist"
+                return f"{EXCEPTION_PROMPT}: setting '{setting_name}' does not exist"
 
-        if not isinstance(obj, bool):
-            print(
-                EXCEPTION_PROMPT,
-                f"{setting_name} is not bool, its value is {obj}",
+        if not isinstance(obj, (bool, str)):
+            return (
+                f"{EXCEPTION_PROMPT}: '{setting_name}' is not bool or str, "
+                "its value is {obj}"
             )
-            return
-        setattr(parent, last_name, not obj)
+
+        if isinstance(obj, str) and not isinstance(setting_value, str):
+            return (
+                f"{EXCEPTION_PROMPT}: '{setting_name} = {setting_value}' "
+                "doesn't provide string value"
+            )
+
+        if isinstance(obj, bool):
+            setattr(parent, last_name, not obj)
+            ret_message = f"setting {setting_name} from {obj}->{not obj}"
+        else:
+            try:
+                setattr(parent, last_name, setting_value)
+                ret_message = f"setting {setting_name} from {obj}->{setting_value}"
+            except Exception as e:
+                return f"{EXCEPTION_PROMPT}: setting '{setting_name}' to '{setting_value}' failed with {e}"
+
         self._reset()
-        return f"setting {setting_name} from {obj}->{not obj}"
+        return ret_message
 
     def _known_action_change_user_config_yaml(self, fname):
         """change self.config to point to fname"""
         self.config = UserConfig(**yaml.safe_load(open(fname)))
         self._reset()
 
-    def _known_action_show_settings(self, *args, **kwargs):
+    def _known_action_show_options(self, *args, **kwargs):
         """show the current settings of the chatbot"""
         return pprint.pformat(
-            {k: v for k, v in self.__dict__.items() if k != "known_actions"}
+            {
+                k: getattr(self, k)
+                for k in dir(self)
+                if k != "known_actions" and not k.startswith("_")
+            }
         )
 
     def _known_action_get_prompt(self, *args, **kwargs):
@@ -282,9 +309,9 @@ class User:
 
             path_rtn = get_path_rtn()
 
-            def toggle_settings_rtn():
-                # toggle_settings <attributes that are bool>
-                return C_mul(["toggle_settings", " "]) * C_add(
+            def set_option_rtn():
+                # set_option <attributes that are bool>
+                return C_mul(["set_option", " "]) * C_add(
                     [
                         C_mul(join_list(".", attr_path))
                         for attr_path, value in gen_attr_paths_value(
@@ -292,16 +319,16 @@ class User:
                             [],
                             set(),
                         )
-                        if isinstance(value, bool)
+                        if isinstance(value, (bool, str))
                         and not contain_private_method(attr_path)
                     ]
                 )
 
-            other_actions = set(self.known_actions.keys()) - set(("toggle_settings",))
+            other_actions = set(self.known_actions.keys()) - set(("set_option",))
 
             return RTNCompleter(
                 # TODO: for each known action, add an optional RTN
-                toggle_settings_rtn()
+                set_option_rtn()
                 # <command> <path>; try even if first success
                 + (C_add(other_actions) * C(" ") * path_rtn)
                 # | <anything> <path>; only try when above 2 fails
@@ -346,7 +373,7 @@ class User:
             print(info("Context:\n"), context)
 
         try:
-            result = self.chatbot(
+            result = self._chatbot(
                 prompt,
                 message_to_save=query,
             )
@@ -408,10 +435,9 @@ class User:
         except Exception as e:
             print(EXCEPTION_PROMPT, e, info("asking llm"))
             result = self.rag_call(prompt)
-
-        if not self.config.chat:
-            self._reset()
-        return result
+            if not self.config.chat:
+                self._reset()
+            return result
 
 
 class DiaryReader(User):
@@ -479,7 +505,7 @@ class DiaryReader(User):
         os.system(f"mkdir -p {save_dir}/{today}")
         # generate the report
         result = self.rag_call(instruction)
-        if self.chatbot.stream:
+        if self._chatbot.stream:
             result = print_openai_stream(result)
         with open(output_path, "w") as f:
             f.write(result)
@@ -704,8 +730,28 @@ class Coder(User):
         config: UserConfig = UserConfig(),
     ):
         super().__init__(config)
-        self.context_use_code = False
+        self._name2get_context = {
+            "sql": self._get_context_sql,
+            "code": self._get_context_code,
+            "json": self._get_context_json,
+        }
+        self._valid_context_names = set(self._name2get_context.keys())
+        self._context_name = "sql"
         self.n_code_rounds = n_code_rounds
+
+    @property
+    def context_name(self):
+        """which context to use"""
+        return self._context_name
+
+    @context_name.setter
+    def context_name(self, value):
+        if value not in self._valid_context_names:
+            raise Exception(
+                f"invalid context name '{value}', valid context names"
+                f": {self._valid_context_names}"
+            )
+        self._context_name = value
 
     def _known_action_welcome(self) -> str:
         return (
@@ -714,7 +760,7 @@ class Coder(User):
             f"{self.config.fnames}"
         )
 
-    def get_context_code(self, question) -> (str, Any):
+    def _get_context_code(self, question) -> (str, Any):
         """
         code version of get context (not properly working yet)
 
@@ -877,7 +923,7 @@ If you don't need to gather more info, start response with no and explain.
         # return code_str, "no metadata found"
         return bot.messages, "no metadata found"
 
-    def get_context_sql(self, question) -> (str, Any):
+    def _get_context_sql(self, question) -> (str, Any):
         """
         return the context of the question
         we will get an AI agent to query a database for context
@@ -1009,7 +1055,7 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
         con.close()  # close db connection
         return bot.messages, "no metadata found"
 
-    def get_context_json(self, question) -> (str, Any):
+    def _get_context_json(self, question) -> (str, Any):
         """
         TODO: use FHIR format as a test bed
         return the context of the question
@@ -1133,10 +1179,7 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
         return bot.messages, "no metadata found"
 
     def get_context(self, question) -> (str, Any):
-        if self.context_use_code:
-            return self.get_context_code(question)
-        else:
-            return self.get_context_sql(question)
+        return self._name2get_context[self.context_name](question)
 
     def _known_action_get_prompt(self) -> str:
         return """Answer user questions based on the context given"""
