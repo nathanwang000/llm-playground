@@ -1078,7 +1078,11 @@ If you don't need to gather more info, start response with no and explain why no
         return """Answer user questions based on the context given"""
 
 
-class CareCompanion(User):
+class FHIRCoder(User):
+    """
+    class to use FHIR json data
+    """
+
     def __init__(
         self,
         n_code_rounds=5,
