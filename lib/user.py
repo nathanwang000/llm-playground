@@ -3,6 +3,7 @@
 import functools
 import yaml
 import json
+import jq
 import os
 import duckdb
 import io
@@ -733,7 +734,6 @@ class Coder(User):
         self._name2get_context = {
             "sql": self._get_context_sql,
             "code": self._get_context_code,
-            "json": self._get_context_json,
         }
         self._valid_context_names = set(self._name2get_context.keys())
         self._context_name = "sql"
@@ -827,9 +827,12 @@ Note that your code will be run from scratch, so redefine all variables!
             "Now write python code to collect information you need.\n"
             f"{code_rule}"
         )
-        code_str = bot(question2code_prompt)
         print(info("q2code prompt:"))
         print(question2code_prompt)
+
+        code_str = bot(question2code_prompt)
+        print(info("bot response"))
+        print(code_str)
 
         def parse_code(text: str):
             """
@@ -901,7 +904,7 @@ by a revised code enclosed in ``` block.
 Remember to follow the coding rules:
 {code_rule}
                                  
-If you don't need to gather more info, start response with no and explain.
+If you don't need to gather more info, start response with no and explain why not.
              """
             print(info("feedback prompt:"))
             print(feedback_prompt)
@@ -972,22 +975,29 @@ If you don't need to gather more info, start response with no and explain.
             "=====question start=====\n" f"{question}\n" "=====question end=====\n\n"
         )
 
+        code_rule = f"""
+Write a duckdb sql statment to collect information you need.
+Remember you can access tables from table_0 to table_{len(dfs)-1}
+You have {n_iterations} rounds to interact with the user;
+choose your response wisely (e.g., you can use join stmt to maximize information in each round)
+Your code should be enclosed in a ``` block
+Example code
+```
+SELECT * FROM table_0
+```
+Remember if a field name contain a space or special character, you need to enclose it in double quotes.
+                       """
         question2code_prompt = (
             f"{question_prompt}"
-            "Now write a duckdb sql statment to collect information you need.\n"
-            f"Remember you can access tables from table_0 to table_{len(dfs)-1}\n"
-            f"You have {n_iterations} rounds to interact with the user; \n"
-            "choose your response wisely (e.g., you can use join stmt to maximize information in each round)\n"
-            "Your code should be enclosed in a ``` block\n"
-            "Example code\n"
-            "```\n"
-            "SELECT * FROM table_0\n"
-            "```\n"
+            f"{code_rule}\n"
             "The user will supply you the output running your code."
         )
-        code_str = bot(question2code_prompt)
         print(info("q2code prompt:"))
         print(question2code_prompt)
+
+        code_str = bot(question2code_prompt)
+        print(info("bot response"))
+        print(code_str)
 
         def parse_code(text: str):
             """
@@ -1042,8 +1052,14 @@ If you don't need to gather more info, start response with no and explain.
 === end of code result ===
 
 do you need more information?
+
 If so, start your response with yes, then give an explaination, followed
-by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain why not, and summarize all information you gathered.
+by a revised code enclosed in ``` block.
+
+Remember to follow the coding rules:
+{code_rule}
+                                 
+If you don't need to gather more info, start response with no and explain why not.
              """)
 
             print(info("bot response"))
@@ -1055,30 +1071,70 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
         con.close()  # close db connection
         return bot.messages, "no metadata found"
 
+    def get_context(self, question) -> (str, Any):
+        return self._name2get_context[self.context_name](question)
+
+    def _known_action_get_prompt(self) -> str:
+        return """Answer user questions based on the context given"""
+
+
+class CareCompanion(User):
+    def __init__(
+        self,
+        n_code_rounds=5,
+        config: UserConfig = UserConfig(),
+    ):
+        super().__init__(config)
+        self._name2get_context = {
+            "json": self._get_context_json,
+        }
+        self._valid_context_names = set(self._name2get_context.keys())
+        self._context_name = "json"
+        self.n_code_rounds = n_code_rounds
+
+    @property
+    def context_name(self):
+        """which context to use"""
+        return self._context_name
+
+    @context_name.setter
+    def context_name(self, value):
+        if value not in self._valid_context_names:
+            raise Exception(
+                f"invalid context name '{value}', valid context names"
+                f": {self._valid_context_names}"
+            )
+        self._context_name = value
+
+    def _known_action_welcome(self) -> str:
+        return (
+            "The bot can code.\n"
+            "I'm using the following files to answer your questions:\n"
+            f"{self.config.fnames}"
+        )
+
     def _get_context_json(self, question) -> (str, Any):
         """
-        TODO: use FHIR format as a test bed
         return the context of the question
         we will get an AI agent to query a database for context
         """
         n_iterations = self.n_code_rounds
-        dfs = [pd.read_csv(fname) for fname in self.config.fnames]
+        jsons = [
+            json.load(open(fname))
+            for fname in self.config.fnames
+            if fname.lower().endswith(".json")
+        ]
 
-        df_snapshots = [df.head().to_string() for df in dfs]
-        df_snapshots_str = ""
-        for i, snapshot in enumerate(df_snapshots):
-            df_snapshots_str += f"df[{i}]:\n {snapshot}\n\n"
+        snapshots = [str(f)[:300] for f in jsons]
+        snapshots_str = ""
+        for i, snapshot in enumerate(snapshots):
+            snapshots_str += f"element {i} of the json:\n {snapshot}\n\n"
 
         system_prompt = (
-            "You are given a list of dataframes."
-            f"Here are snapshot of each dataframe\n\n {df_snapshots_str}\n"
-            f"The data is loaded into duckdb database where you can access each dataframe as table_i where i runs from 0 to {len(dfs)-1}.\n"
-            "e.g., you could do `SELECT * FROM table_0 LIMIT 5`\n"
-            "duckdb sql syntax for date manipulation is different from regular sql.\n"
-            "For example use `STRFTIME(current_date - INTERVAL 1 MONTH, '%Y-%m')` to get the current date - 1 month in 'YYYY-MM' format.\n"
-            "Remember for date field, you may need to convert it to datetime format first.\n"
-            "For example, STRFTIME(STRPTIME('6/10/2022', '%m/%d/%Y'), '%Y-%m') will convert the date to 2022-6\n"
-            f"You are given {n_iterations} rounds to interact with user; so choose your resonse wisely (e.g., you can use join stmt to maximize the information you get in each round)"
+            f"You are given a json list containing {len(jsons)} elements.\n"
+            f"Here are snapshot of each element of the json list\n\n {snapshots_str}\n"
+            "You can issue jq string to query the information from this json object"
+            f"You are given {n_iterations} rounds to interact with user; so choose your resonse wisely to maximize the information you get in each round"
         )
 
         print(info("system prompt:"))
@@ -1095,22 +1151,30 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
             "=====question start=====\n" f"{question}\n" "=====question end=====\n\n"
         )
 
+        code_rule = """
+Write a jq statment to collect information you need.
+The json list has {len(jsons)} elements.
+You have {n_iterations} rounds to interact with the user; \n"
+Your code should be enclosed in a ``` block
+                      
+Example code
+```
+.. | numbers
+```
+This code will recursively match all numbers in the json
+"""
         question2code_prompt = (
-            f"{question_prompt}"
-            "Now write a duckdb sql statment to collect information you need.\n"
-            f"Remember you can access tables from table_0 to table_{len(dfs)-1}\n"
-            f"You have {n_iterations} rounds to interact with the user; \n"
-            "choose your response wisely (e.g., you can use join stmt to maximize information in each round)\n"
-            "Your code should be enclosed in a ``` block\n"
-            "Example code\n"
-            "```\n"
-            "SELECT * FROM table_0\n"
-            "```\n"
-            "The user will supply you the output running your code."
+            f"{question_prompt}\n"
+            f"{code_rule}\n"
+            "The user will supply you the output running your code.\n"
         )
-        code_str = bot(question2code_prompt)
+
         print(info("q2code prompt:"))
         print(question2code_prompt)
+
+        code_str = bot(question2code_prompt)
+        print(info("bot response"))
+        print(code_str)
 
         def parse_code(text: str):
             """
@@ -1124,15 +1188,10 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
             return matches[0]
 
         # run code (need to check for safety)
-        con = duckdb.connect()
-        for i, df in enumerate(dfs):
-            table_name = f"table_{i}"
-            con.register(table_name, df)
-
-        def run_sql_df(con, code: str) -> (str, str):
+        def run_code(code: str, jsons: List[Any]) -> (str, str):
             stdout_str, stderr_str = "", ""
             try:
-                stdout_str = str(con.sql(code).df())
+                stdout_str = str(jq.compile(code).input_value(jsons).all())
             except Exception as e:
                 stderr_str = str(e)
             return stdout_str, stderr_str
@@ -1146,7 +1205,7 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
             print(code)
             print(info("code block end"))
 
-            code_stdout, code_stderr = run_sql_df(con, code)
+            code_stdout, code_stderr = run_code(code, jsons)
             code_feedback = code_stdout if code_stdout != "" else code_stderr
             print(info("code response:"))
             print(code_feedback)
@@ -1165,8 +1224,14 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
 === end of code result ===
 
 do you need more information?
+
 If so, start your response with yes, then give an explaination, followed
-by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain why not, and summarize all information you gathered.
+by a revised code enclosed in ``` block.
+
+Remember to follow the coding rules:
+{code_rule}
+                                 
+If you don't need to gather more info, start response with no and explain why not.
              """)
 
             print(info("bot response"))
@@ -1175,7 +1240,6 @@ by a revised sql stmt enclosed in ``` block. Otherwise, start with no, explain w
         print(info("saving coder bot history"))
         bot.save_chat()
         # return code_str, "no metadata found"
-        con.close()  # close db connection
         return bot.messages, "no metadata found"
 
     def get_context(self, question) -> (str, Any):
