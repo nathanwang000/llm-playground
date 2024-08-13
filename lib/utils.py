@@ -926,13 +926,18 @@ class ChatVisionBot:
         model="gpt-4o",
         stream=True,
         use_azure=False,
-        max_tokens=3000,
+        # max output length
+        max_tokens=4_000,
+        # 4 char/token * 128k tokens = 512k char
+        # summary trigger for long messages
+        max_char_to_summarize=256_000,
     ):
         self.model = model
         self.system = system
         self.stop = stop
         self.use_azure = use_azure
         self.max_tokens = max_tokens
+        self.max_char_to_summarize = max_char_to_summarize
 
         self.messages = []
         self.stream = stream
@@ -943,6 +948,31 @@ class ChatVisionBot:
     def client(self):
         # regenerate an client each time so that access token is up to date
         return get_llm_openai_client(use_azure=self.use_azure)
+
+    def summarize_messages(self):
+        """summarize messages when they are too long"""
+        summary = (
+            self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages
+                + [
+                    {
+                        "role": "user",
+                        "content": "summarize conversation up to this point",
+                    }
+                ],
+                stream=False,
+                stop=self.stop,
+                max_tokens=self.max_tokens,
+            )
+            .choices[0]
+            .message.content
+        )
+        print(info("replacing message history with summary:"))
+        print(summary)
+        self.messages = [
+            {"role": "assistant", "content": "Conversation summary:" + summary}
+        ]
 
     def __call__(
         self,
@@ -958,6 +988,9 @@ class ChatVisionBot:
         record_user_message_only:
         if true, do not ask llm and just record user message
         """
+        if len(str(self.messages)) > self.max_char_to_summarize:
+            self.summarize_messages()
+
         if images is None:
             images = []
 
@@ -988,7 +1021,7 @@ class ChatVisionBot:
         # modify to only save desired message
         new_message["content"][0]["text"] = message_to_save
 
-        if isinstance(result, str):
+        if isinstance(result, str) and result != "":
             self.messages.append({"role": "assistant", "content": result})
         else:
             print(

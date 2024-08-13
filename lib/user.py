@@ -1129,17 +1129,17 @@ class FHIRCoder(User):
             if fname.lower().endswith(".json")
         ]
 
-        snapshots = [str(f)[:300] for f in jsons]
-        snapshots_str = ""
-        for i, snapshot in enumerate(snapshots):
-            snapshots_str += f"element {i} of the json:\n {snapshot}\n\n"
-
-        system_prompt = (
-            f"You are given a json list containing {len(jsons)} elements.\n"
-            f"Here are snapshot of each element of the json list\n\n {snapshots_str}\n"
-            "You can issue jq string to query the information from this json object"
-            f"You are given {n_iterations} rounds to interact with user; so choose your resonse wisely to maximize the information you get in each round"
-        )
+        system_prompt = f"""
+You are given a json list containing {len(jsons)} elements.
+Each element of the list conforms to the FHIR json format for medical devices.
+Here are snapshot of the json
+==== snapshot start ===
+{str(jsons)[:600]}
+==== snapshot end ===                           
+                           
+You can issue jq string to query the information from this json object
+You are given {n_iterations} rounds to interact with user; so choose your resonse wisely to maximize the information you get in each round
+        """
 
         print(info("system prompt:"))
         print(system_prompt)
@@ -1166,6 +1166,8 @@ Example code
 .. | numbers
 ```
 This code will recursively match all numbers in the json
+
+Don't start your command with jq! Just give the filter pattern in ``` block!
 """
         question2code_prompt = (
             f"{question_prompt}\n"
@@ -1205,14 +1207,15 @@ This code will recursively match all numbers in the json
             print(info(f"running code iteration {i+1}/{n_iterations}"))
 
             code = parse_code(code_str)
-            print(info("code block start"))
-            print(code)
-            print(info("code block end"))
+            if not (code.strip() == "" and code_str.lower().startswith("no")):
+                print(info("code block start"))
+                print(code)
+                print(info("code block end"))
 
-            code_stdout, code_stderr = run_code(code, jsons)
-            code_feedback = code_stdout if code_stdout != "" else code_stderr
-            print(info("code response:"))
-            print(code_feedback)
+                code_stdout, code_stderr = run_code(code, jsons)
+                code_feedback = code_stdout if code_stdout != "" else code_stderr
+                print(info("code response:"))
+                print(code_feedback)
 
             if (
                 code.strip() == "" or code_stderr == ""
