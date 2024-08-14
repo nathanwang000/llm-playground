@@ -697,9 +697,7 @@ class DocReader(User):
 
         underlying_embeddings = get_embedding_model_langchain(
             use_azure=self.config.use_azure,
-            model=self.config.model,
         )
-
         cached_embedder = CacheBackedEmbeddings.from_bytes_store(
             underlying_embeddings, store, namespace=underlying_embeddings.model
         )
@@ -1155,7 +1153,7 @@ You are given {n_iterations} rounds to interact with user; so choose your resons
             "=====question start=====\n" f"{question}\n" "=====question end=====\n\n"
         )
 
-        code_rule = """
+        code_rule = f"""
 Write a jq statment to collect information you need.
 The json list has {len(jsons)} elements.
 You have {n_iterations} rounds to interact with the user; \n"

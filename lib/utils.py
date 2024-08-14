@@ -237,12 +237,15 @@ def parse_time_range_from_AI_message(message: AIMessage) -> DateRange:
     return DateRange(start_dates[0], end_dates[0])
 
 
-def get_embedding_model_langchain(use_azure=False, model="text-embedding-ada-002"):
+def get_embedding_model_langchain(
+    use_azure=False,
+    model="text-embedding-3-small",
+):
     if use_azure:
         print(
             info("Azure chat api for embedding:"),
             "Don't sent personal info!"
-            " use toggle_settings config.use_azure to turn it off",
+            " use set_option config.use_azure to turn it off",
         )
         return AzureOpenAIEmbeddings(
             azure_deployment=os.environ["EMBEDDING_DEPLOYMENT_MODEL"],
@@ -256,6 +259,7 @@ def get_embedding_model_langchain(use_azure=False, model="text-embedding-ada-002
                 "Ocp-Apim-Subscription-Key": f"{os.environ['APIM_KEY']}",
             },
         )
+
     return OpenAIEmbeddings(model=model)
 
 
@@ -264,7 +268,7 @@ def get_llm_langchain(use_azure=False, model="gpt-4o"):
         print(
             info("Azure for langchain model:"),
             "Don't sent personal info!"
-            " use toggle_settings config.use_azure to turn it off",
+            " use set_option config.use_azure to turn it off",
         )
         return AzureChatOpenAI(
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
@@ -285,7 +289,7 @@ def get_llm_openai_client(use_azure=False):
         print(
             info("Azure for openai client:"),
             "Don't sent personal info!"
-            " use toggle_settings config.use_azure to turn it off",
+            " use set_option config.use_azure to turn it off",
         )
         return openai.AzureOpenAI(
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
