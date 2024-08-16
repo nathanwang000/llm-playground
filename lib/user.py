@@ -752,7 +752,7 @@ class Coder(User):
             )
         self._context_name = value
 
-    def _known_action_welcome(self) -> str:
+    def _known_action_welcome(self, *args, **kwargs) -> str:
         return (
             "The bot can code.\n"
             "I'm using the following files to answer your questions:\n"
@@ -1109,9 +1109,9 @@ class FHIRCoder(User):
             )
         self._context_name = value
 
-    def _known_action_welcome(self) -> str:
+    def _known_action_welcome(self, *args, **kwargs) -> str:
         return (
-            "The bot can code.\n"
+            "The bot can understand FHIR format.\n"
             "I'm using the following files to answer your questions:\n"
             f"{self.config.fnames}"
         )
