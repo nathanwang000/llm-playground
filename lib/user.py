@@ -63,6 +63,7 @@ class UserConfig:
 
     chat: bool = False
     model: str = "gpt-4o"
+    embed_model: str = "text-embedding-3-small"
     # debug asking human
     human: bool = False
     show_context: bool = False
@@ -696,7 +697,7 @@ class DocReader(User):
         store = LocalFileStore("./cache/")
 
         underlying_embeddings = get_embedding_model_langchain(
-            use_azure=self.config.use_azure,
+            use_azure=self.config.use_azure, model=self.config.embed_model
         )
         cached_embedder = CacheBackedEmbeddings.from_bytes_store(
             underlying_embeddings, store, namespace=underlying_embeddings.model
