@@ -70,6 +70,7 @@ class UserConfig:
     fnames: set = field(default_factory=lambda: set())
     # use azure api
     use_azure: bool = False
+    stream: bool = True
     # convert pdf to md
     convert_pdf2md: bool = False
     eval_context_relevance: bool = True
@@ -134,6 +135,7 @@ class User:
                 self._known_action_get_prompt(),
                 model=self.config.model,
                 use_azure=self.config.use_azure,
+                stream=self.config.stream,
             )
             self.known_actions["save_chat"] = self._chatbot.save_chat
 
