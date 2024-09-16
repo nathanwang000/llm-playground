@@ -531,8 +531,7 @@ class DiaryReader(User):
             [
                 success("Ideas to try:\n"),
                 "- learn a new emacs (c-h r) or python trick",
-                "- update cheatsheet about me: https://shorturl.at/ltwKW",
-                "- my work items are in https://shorturl.at/HLP59",
+                "- when stressed, go work out or go to a park",
                 "- go out for a walk and not dwell on unchangeable event",
             ]
         )
