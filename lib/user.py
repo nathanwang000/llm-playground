@@ -320,10 +320,20 @@ class User:
                         C_mul(join_list(".", attr_path))
                         for attr_path, value in gen_attr_paths_value(
                             self,
-                            [],
-                            set(),
+                            [],  # curr path
+                            set(),  # seen
                         )
-                        if isinstance(value, (bool, str))
+                        if isinstance(value, bool)
+                        and not contain_private_method(attr_path)
+                    ]
+                    + [
+                        C_mul(join_list(".", attr_path) + ["="])
+                        for attr_path, value in gen_attr_paths_value(
+                            self,
+                            [],  # curr path
+                            set(),  # seen
+                        )
+                        if isinstance(value, str)
                         and not contain_private_method(attr_path)
                     ]
                 )
