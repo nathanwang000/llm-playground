@@ -341,12 +341,14 @@ class User:
             other_actions = set(self.known_actions.keys()) - set(("set_option",))
 
             return RTNCompleter(
-                # TODO: for each known action, add an optional RTN
-                set_option_rtn()
-                # <command> <path>; try even if first success
-                + (C_add(other_actions) * C(" ") * path_rtn)
-                # | <anything> <path>; only try when above 2 fails
-                | (C_regex(r"\S+ ") * path_rtn)
+                (
+                    # TODO: for each known action, add an optional RTN
+                    set_option_rtn()
+                    # <command> <path>; try even if first succeed
+                    + (C_add(other_actions) * C(" ") * path_rtn)
+                    # | <anything> <path>; only try when above 2 fails
+                    | C_regex(r".*\s+") * path_rtn
+                )
             )
         except Exception as e:
             print(
