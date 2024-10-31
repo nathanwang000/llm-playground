@@ -2,6 +2,8 @@ import openai
 import re
 import httpx
 import os
+import json
+
 from termcolor import colored
 from lib.utils import ChatVisionBot, repl
 from lib.utils import get_input_prompt_session
@@ -48,10 +50,17 @@ Keep in mind, the discussion is around your (a {your_role}'s) view on {topic}, n
 """.strip()
 
 
-def argue(topic, role1, role2, max_turns=5, verbose=False):
+def argue(topic, role1, role2, max_turns=5, verbose=False, savefn=""):
     role1_prompt = argue_prompt(topic, role1, role2)
     role2_prompt = argue_prompt(topic, role2, role1)
     mod_prompt = moderator_prompt(topic, role1, role2)
+    savefn = savefn.strip()
+    save_json = {
+        "topic": topic,
+        "roles": [role1, role2, "moderator"],
+        "max_turns": max_turns,
+        "hist": [],  # [{'role': role, 'response': response}]
+    }
 
     i = 0
     role1_bot = ChatVisionBot(role1_prompt, stream=False)
@@ -78,8 +87,15 @@ def argue(topic, role1, role2, max_turns=5, verbose=False):
             f"{colored('moderator should end the conversation', 'red')}: {mod_response}"
         )
 
+        save_json["hist"].append({"role": role1, "response": role1_response})
+        save_json["hist"].append({"role": role2, "response": role2_response})
+        save_json["hist"].append({"role": "moderator", "response": mod_response})
+        if savefn != "":
+            with open(f"outputs/{savefn}", "w") as f:
+                json.dump(save_json, f)
+
         if mod_response[:4].lower() == "yes:":
-            print(f"Moderator has ended the conversation")
+            print("Moderator has ended the conversation")
             break
 
 
@@ -90,8 +106,9 @@ if __name__ == "__main__":
     session = get_input_prompt_session("ansired")
     role1 = session.prompt("1st role (e.g., wizard): ")
     role2 = session.prompt("2nd role (e.g., scientist): ")
+    savefn = session.prompt("file to save (default not saving): ")
 
     repl(
-        lambda topic: argue(topic, role1, role2, verbose=False),
+        lambda topic: argue(topic, role1, role2, verbose=False, savefn=savefn),
         input_prompt="topic (e.g., magic): ",
     )
