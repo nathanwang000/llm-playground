@@ -3,7 +3,7 @@ import re
 import httpx
 import os
 from termcolor import colored
-from lib.utils import ChatBot, repl
+from lib.utils import ChatVisionBot, repl
 from lib.utils import get_input_prompt_session
 
 
@@ -54,9 +54,9 @@ def argue(topic, role1, role2, max_turns=5, verbose=False):
     mod_prompt = moderator_prompt(topic, role1, role2)
 
     i = 0
-    role1_bot = ChatBot(role1_prompt)
-    role2_bot = ChatBot(role2_prompt)
-    mod_bot = ChatBot(mod_prompt)
+    role1_bot = ChatVisionBot(role1_prompt, stream=False)
+    role2_bot = ChatVisionBot(role2_prompt, stream=False)
+    mod_bot = ChatVisionBot(mod_prompt, stream=False)
 
     if verbose:
         print(f'{colored(str(role1) + " prompt", "green")}: {role1_prompt}')
