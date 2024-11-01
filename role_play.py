@@ -45,6 +45,8 @@ Here are the rules of the conversation:
 - You will be fed the argument from {opp_role}, so don't simulate the other person's speech.
 - Do not start your speech stating your role
 - Try to mimic the style of a {your_role} as much as possible
+- Be concise and to the point. No need for fillers like "I see where you are coming from" or "I understand your point", cut to the chase.
+- No need to be formal, imagine you are having a casual conversation.
 
 Keep in mind, the discussion is around your (a {your_role}'s) view on {topic}, not the {opp_role}'s view. Off topic discussion will be cut short.
 """.strip()
@@ -91,7 +93,9 @@ def argue(topic, role1, role2, max_turns=5, verbose=False, savefn=""):
         save_json["hist"].append({"role": role2, "response": role2_response})
         save_json["hist"].append({"role": "moderator", "response": mod_response})
         if savefn != "":
-            with open(f"outputs/{savefn}", "w") as f:
+            if savefn.endswith(".json"):
+                savefn = savefn[:-5]
+            with open(f"outputs/{savefn}.json", "w") as f:
                 json.dump(save_json, f)
 
         if mod_response[:4].lower() == "yes:":
@@ -106,7 +110,7 @@ if __name__ == "__main__":
     session = get_input_prompt_session("ansired")
     role1 = session.prompt("1st role (e.g., wizard): ")
     role2 = session.prompt("2nd role (e.g., scientist): ")
-    savefn = session.prompt("file to save (default not saving): ")
+    savefn = session.prompt("json file to save (default not saving): ")
 
     repl(
         lambda topic: argue(topic, role1, role2, verbose=False, savefn=savefn),
