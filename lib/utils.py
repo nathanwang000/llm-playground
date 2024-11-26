@@ -9,6 +9,7 @@ import os
 import pprint
 import re
 import signal
+import ollama
 import subprocess
 import sys
 import tempfile
@@ -495,6 +496,15 @@ def get_input_prompt_session(color="ansired"):
 
 
 # Function to print the stream
+def print_ollama_stream(ans) -> str:
+    # https://github.com/ollama/ollama-python
+    res = []
+    for chunk in stream:
+        res.append(chunk['message']['content'])
+        print(res[-1], end='', flush=True)
+    print()
+    return "".join(res)
+        
 def print_openai_stream(ans) -> str:
     # from https://cookbook.openai.com/examples/how_to_stream_completions
     if type(ans) is not openai.Stream:
@@ -927,16 +937,21 @@ class ChatVisionBot:
         self,
         system="",
         stop="<|endoftext|>",
-        model="gpt-4o",
+        model=None,
         stream=True,
         use_azure=False,
+        use_ollama=False, # default model to "llama3.2" when True
         # max output length
         max_tokens=4_000,
         # 4 char/token * 128k tokens = 512k char
         # summary trigger for long messages
         max_char_to_summarize=256_000,
     ):
-        self.model = model
+        if model is None:
+            self.model = "gpt4o" if not use_ollama else "llama3.2"
+        else:
+            self.model = model
+            
         self.system = system
         self.stop = stop
         self.use_azure = use_azure
@@ -945,12 +960,16 @@ class ChatVisionBot:
 
         self.messages = []
         self.stream = stream
+        self.use_ollama = use_ollama
+         
         if self.system:
             self.messages.append({"role": "system", "content": system})
 
     @property
     def client(self):
         # regenerate an client each time so that access token is up to date
+        if self.use_ollama:
+            return ollama.Client()
         return get_llm_openai_client(use_azure=self.use_azure)
 
     def summarize_messages(self):
@@ -1056,13 +1075,20 @@ class ChatVisionBot:
 
     # @create_retry_decorator(max_tries=3)
     def execute(self):
-        completion = self.client.chat.completions.create(
-            model=self.model,
-            messages=self.messages,
-            stream=self.stream,
-            stop=self.stop,
-            max_tokens=self.max_tokens,
-        )
+        if self.use_ollama:
+            completion = self.client.chat(
+                model=self.model,
+                messages=self.messages,
+                stream=self.stream,
+            )
+        else:
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages,
+                stream=self.stream,
+                stop=self.stop,
+                max_tokens=self.max_tokens,
+                )
         if self.stream:
             return completion
         else:
