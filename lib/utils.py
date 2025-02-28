@@ -29,7 +29,8 @@ from langchain_community.document_loaders import (
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_community import GoogleDriveLoader
+
+# from langchain_google_community import GoogleDriveLoader
 from langchain_openai import (
     AzureChatOpenAI,
     AzureOpenAIEmbeddings,
@@ -500,11 +501,12 @@ def print_ollama_stream(ans) -> str:
     # https://github.com/ollama/ollama-python
     res = []
     for chunk in stream:
-        res.append(chunk['message']['content'])
-        print(res[-1], end='', flush=True)
+        res.append(chunk["message"]["content"])
+        print(res[-1], end="", flush=True)
     print()
     return "".join(res)
-        
+
+
 def print_openai_stream(ans) -> str:
     # from https://cookbook.openai.com/examples/how_to_stream_completions
     if type(ans) is not openai.Stream:
@@ -632,24 +634,25 @@ def load_doc(
     # save token.json to ../../../diary/secrets/token.json relative to current file path; TODO: use env var
     # follow https://developers.google.com/drive/api/quickstart/python
     token_path = f"{os.path.dirname(__file__)}/../../../diary/secrets/token.json"
-    if fname.startswith("https://drive.google.com"):
-        # see https://python.langchain.com/docs/integrations/document_loaders/google_drive/
-        # e.g., https://drive.google.com/drive/folders/1shC6DvfVAF4LCc5VZdMFoSkafpZv3p0O
-        loader = GoogleDriveLoader(
-            folder_id=fname.split("/")[-1],
-            token_path=token_path,
-            # Optional: configure whether to recursively fetch files from subfolders. Defaults to False.
-            recursive=True,
-        )
-    elif fname.startswith("https://docs.google.com"):
-        # e.g., https://docs.google.com/document/d/1bfaMQ18_i56204VaQDVeAFpqEijJTgvurupdEDiaUQw/edit
-        print(fname)
-        print(fname.split("/")[-2])
-        loader = GoogleDriveLoader(
-            document_ids=[fname.split("/")[-2]],
-            token_path=token_path,
-        )
-    else:
+    # if fname.startswith("https://drive.google.com"):
+    #     # see https://python.langchain.com/docs/integrations/document_loaders/google_drive/
+    #     # e.g., https://drive.google.com/drive/folders/1shC6DvfVAF4LCc5VZdMFoSkafpZv3p0O
+    #     loader = GoogleDriveLoader(
+    #         folder_id=fname.split("/")[-1],
+    #         token_path=token_path,
+    #         # Optional: configure whether to recursively fetch files from subfolders. Defaults to False.
+    #         recursive=True,
+    #     )
+    # elif fname.startswith("https://docs.google.com"):
+    #     # e.g., https://docs.google.com/document/d/1bfaMQ18_i56204VaQDVeAFpqEijJTgvurupdEDiaUQw/edit
+    #     print(fname)
+    #     print(fname.split("/")[-2])
+    #     loader = GoogleDriveLoader(
+    #         document_ids=[fname.split("/")[-2]],
+    #         token_path=token_path,
+    #     )
+    # else:
+    if True:
         ext = fname.split(".")[-1]
         if ext == "pdf":
             if convert_pdf2md:
@@ -940,7 +943,7 @@ class ChatVisionBot:
         model=None,
         stream=True,
         use_azure=False,
-        use_ollama=False, # default model to "llama3.2" when True
+        use_ollama=False,  # default model to "llama3.2" when True
         # max output length
         max_tokens=4_000,
         # 4 char/token * 128k tokens = 512k char
@@ -951,7 +954,7 @@ class ChatVisionBot:
             self.model = "gpt4o" if not use_ollama else "llama3.2"
         else:
             self.model = model
-            
+
         self.system = system
         self.stop = stop
         self.use_azure = use_azure
@@ -961,7 +964,7 @@ class ChatVisionBot:
         self.messages = []
         self.stream = stream
         self.use_ollama = use_ollama
-         
+
         if self.system:
             self.messages.append({"role": "system", "content": system})
 
@@ -1088,7 +1091,7 @@ class ChatVisionBot:
                 stream=self.stream,
                 stop=self.stop,
                 max_tokens=self.max_tokens,
-                )
+            )
         if self.stream:
             return completion
         else:
