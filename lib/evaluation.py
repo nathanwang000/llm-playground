@@ -1,5 +1,5 @@
 """
-TODO: Evaluation for a RAG system
+Evaluation for a RAG system
 question -> *retriever* -> context -> *generator* -> answer
 
 For each text node: question, context, answer
@@ -17,7 +17,7 @@ We need to evaluate the edge for correctness, etc.
   - For question->answer: f_answer_relevance(q, a) -> [float, Explanation]
 We can generalize this to an EdgeEval class
 
-TODO: the generalization of EdgeEval is ChatEval
+the generalization of EdgeEval is ChatEval
 - assume input and output are strings
 - can be created as a decorator function
 - get context from docstring, function signature, code body, etc.
@@ -30,18 +30,29 @@ TODO: the generalization of EdgeEval is ChatEval
 
 import functools
 import inspect
-import os
-import sys
 import re
-from typing import Callable
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List
 
-from langchain_core.messages import AIMessage
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 import numpy as np
-from termcolor import colored
 from const import EXCEPTION_PROMPT
+from termcolor import colored
+from utils import ChatVisionBot, info, print_openai_stream
+
+
+@dataclass
+class Query:
+    question: str
+    image_paths: List[str] = field(default_factory=list)
+
+    def to_string(self):
+        if self.question == "" and len(self.image_paths) == 0:
+            return "no query provided"
+        if self.question == "" and len(self.image_paths) != 0:
+            return "images"
+        if self.question != "" and len(self.image_paths) == 0:
+            return self.question
+        return f"input: ```{self.question}``` and images"
 
 
 def get_function_info(func: Callable) -> (str, str):
@@ -53,13 +64,13 @@ def get_function_info(func: Callable) -> (str, str):
     return code_body, docstring
 
 
-def human(prompt):
+def human(prompt: Query) -> str:
     """Prompt the user for input and return the response as an AIMessage; for debugging"""
-    res = input(colored(prompt.to_string() + "\nwaiting for response: ", "yellow"))
-    return AIMessage(res)
+    res = input(info(prompt + "\nwaiting for response: "))
+    return res
 
 
-def parse_relevance_output(message: AIMessage) -> (float, str):
+def parse_relevance_output(message: str) -> Dict[str, Any]:
     """
     Parse the output of check_relevance
 
@@ -69,8 +80,8 @@ def parse_relevance_output(message: AIMessage) -> (float, str):
 
     Returns: a dict with keys score and explanation
     """
-    scores = list(map(float, re.findall(r"score: (.*)", message.content)))
-    explanations = re.findall(r"explanation: (.*)", message.content)
+    scores = list(map(float, re.findall(r"score: (.*)", message)))
+    explanations = re.findall(r"explanation: (.*)", message)
 
     if not scores:
         print(EXCEPTION_PROMPT, f"no scores found in `{message}`, using nan")
@@ -84,20 +95,23 @@ def parse_relevance_output(message: AIMessage) -> (float, str):
 
 def check_relevance(
     f: Callable[str, str],
-    question: str,
+    query: Query,
     answer: str,
     ai_mode: bool = False,
-    model: str = "gpt-3.5-turbo",
-):
+    model: str = "gpt-4o",
+    use_azure: bool = False,
+    verbose: bool = False,
+) -> Dict[str, Any]:
     """
     Check the relevance of the answer to the question given the function f
 
     Args:
     - f: function that takes a question and returns an answer
-    - question: input to f
+    - query: input to f
     - answer: output of f
     - ai_mode: whether to use AI to evaluate the relevance
     - model: the AI model to use if ai_mode is True
+    - use_azure: whether to use Azure OpenAI
 
     Returns:
     - score: float between 0 and 1
@@ -117,30 +131,33 @@ def check_relevance(
         "your job is to check the relevance of the answer to the question."
         " Please provide a score between 0 and 1."
         " 0 means not relevant at all, 1 means very relevant.\n"
-        "You can also provide a short explanation.\n"
+        "Your response should strictly follow the following fomrat.\n"
         "----Example output----\n"
         "score: <score between 0 to 1>\n"
         "explanation: <explanation>"
     )
-    p = ChatPromptTemplate.from_messages(
-        [
-            ("system", system_prompt),
-            (
-                "user",
-                "Question: ```{question}```\n\n"
-                "Answer: ```{answer}```\n\n"
-                "Remember your instructions: ```{system_prompt}```",
-            ),
-        ]
-    )  # use .pretty_print() to show prompt
 
-    # human for debug
-    llm = ChatOpenAI(model_name=model) if ai_mode else human
+    if ai_mode:
+        bot = ChatVisionBot(
+            system_prompt,
+            stream=verbose,
+            use_azure=use_azure,
+            model=model,
+        )
+    else:
+        bot = human
 
-    chain = p | llm | parse_relevance_output
-    return chain.invoke(
-        {"question": question, "answer": answer, "system_prompt": system_prompt}
-    )
+    if verbose:
+        print(info("system_prompt:"), system_prompt)
+
+    prompt = f"""Given \nQuery: ```{query.to_string()}```, \nAnswer: ```{answer}```\nRemember your instructions: ```{system_prompt}```"""
+    if verbose:
+        print(info("user_prompt:"), prompt)
+        print(info("check_relevance output:"))
+        output = print_openai_stream(bot(prompt, images=query.image_paths))
+    else:
+        output = bot(prompt, images=query.image_paths)
+    return parse_relevance_output(output)
 
 
 def test_f(s: str) -> str:
@@ -148,24 +165,30 @@ def test_f(s: str) -> str:
     return s.capitalize()
 
 
-if __name__ == "__main__":
-    print(check_relevance(test_f, "some string", "some other string", ai_mode=True))
-
-
-def chat_eval(f):
+def chat_eval(f, use_azure=False, model="gpt-4o"):
     """
     Decorator for chat evaluation
+
+    assumes f: str->(str, Any)
+      where the first str is the answer and the second Any is the metadata
     """
 
     @functools.wraps(f)
-    def wrapper(question: str) -> str:
-        assert isinstance(question, str), "chat eval only takes string input"
+    def wrapper(question: str) -> (str, Any):
+        assert isinstance(question, str), "chat eval currently only takes string input"
         # TODO: check input
-        answer = f(question)
+        answer, meta_data = f(question)
         # TODO: check output
         # check relevance | input, output
-        print(colored(f"checking relevance of {f.__name__}", "yellow"))
-        rel = check_relevance(f, question, answer, ai_mode=True)
+        print(info(f"checking relevance of {f.__name__}"))
+        rel = check_relevance(
+            f,
+            Query(question),
+            answer,
+            ai_mode=True,
+            model=model,
+            use_azure=use_azure,
+        )
         if rel["score"] < 0.5:
             print(
                 EXCEPTION_PROMPT,
@@ -180,6 +203,10 @@ def chat_eval(f):
                 rel["explanation"],
             )
 
-        return answer
+        return answer, meta_data
 
     return wrapper
+
+
+if __name__ == "__main__":
+    print(check_relevance(test_f, "some string", "some other string", ai_mode=True))

@@ -2,8 +2,10 @@ import openai
 import re
 import httpx
 import os
+import json
+
 from termcolor import colored
-from lib.utils import ChatBot, repl
+from lib.utils import ChatVisionBot, repl
 from lib.utils import get_input_prompt_session
 
 
@@ -43,20 +45,29 @@ Here are the rules of the conversation:
 - You will be fed the argument from {opp_role}, so don't simulate the other person's speech.
 - Do not start your speech stating your role
 - Try to mimic the style of a {your_role} as much as possible
+- Be concise and to the point. No need for fillers like "I see where you are coming from" or "I understand your point", cut to the chase.
+- No need to be formal, imagine you are having a casual conversation.
 
 Keep in mind, the discussion is around your (a {your_role}'s) view on {topic}, not the {opp_role}'s view. Off topic discussion will be cut short.
 """.strip()
 
 
-def argue(topic, role1, role2, max_turns=5, verbose=False):
+def argue(topic, role1, role2, max_turns=5, verbose=False, savefn=""):
     role1_prompt = argue_prompt(topic, role1, role2)
     role2_prompt = argue_prompt(topic, role2, role1)
     mod_prompt = moderator_prompt(topic, role1, role2)
+    savefn = savefn.strip()
+    save_json = {
+        "topic": topic,
+        "roles": [role1, role2, "moderator"],
+        "max_turns": max_turns,
+        "hist": [],  # [{'role': role, 'response': response}]
+    }
 
     i = 0
-    role1_bot = ChatBot(role1_prompt)
-    role2_bot = ChatBot(role2_prompt)
-    mod_bot = ChatBot(mod_prompt)
+    role1_bot = ChatVisionBot(role1_prompt, stream=False)
+    role2_bot = ChatVisionBot(role2_prompt, stream=False)
+    mod_bot = ChatVisionBot(mod_prompt, stream=False)
 
     if verbose:
         print(f'{colored(str(role1) + " prompt", "green")}: {role1_prompt}')
@@ -78,8 +89,17 @@ def argue(topic, role1, role2, max_turns=5, verbose=False):
             f"{colored('moderator should end the conversation', 'red')}: {mod_response}"
         )
 
+        save_json["hist"].append({"role": role1, "response": role1_response})
+        save_json["hist"].append({"role": role2, "response": role2_response})
+        save_json["hist"].append({"role": "moderator", "response": mod_response})
+        if savefn != "":
+            if savefn.endswith(".json"):
+                savefn = savefn[:-5]
+            with open(f"outputs/{savefn}.json", "w") as f:
+                json.dump(save_json, f)
+
         if mod_response[:4].lower() == "yes:":
-            print(f"Moderator has ended the conversation")
+            print("Moderator has ended the conversation")
             break
 
 
@@ -90,8 +110,9 @@ if __name__ == "__main__":
     session = get_input_prompt_session("ansired")
     role1 = session.prompt("1st role (e.g., wizard): ")
     role2 = session.prompt("2nd role (e.g., scientist): ")
+    savefn = session.prompt("json file to save (default not saving): ")
 
     repl(
-        lambda topic: argue(topic, role1, role2, verbose=False),
+        lambda topic: argue(topic, role1, role2, verbose=False, savefn=savefn),
         input_prompt="topic (e.g., magic): ",
     )

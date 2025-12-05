@@ -6,7 +6,7 @@ import re
 import httpx
 import os
 import click
-from lib.utils import ChatBot, repl
+from lib.utils import ChatVisionBot, repl
 
 prompt = """
 You run in a loop of Thought, Action, Observation.
@@ -41,7 +41,7 @@ action_re = re.compile("^Action: (\w+): ```([^`]*)```.*$")
 
 def query(question, max_turns=5):
     i = 0
-    bot = ChatBot(prompt, stop=["Observation:", "observation"])
+    bot = ChatVisionBot(prompt, stop=["Observation:", "observation"], stream=False)
     next_prompt = question
     while i < max_turns:
         print(f"turn: {i}")
@@ -111,7 +111,7 @@ def ddgs_text(q, top_n=3):
 
 def calculate(what):
     """
-    Runs a calculation and returns the number - uses Python so be sure to use floating point syntax if necessary. The input must be executable python code.
+    Runs a calculation and returns the number - uses Python so be sure to use floating point syntax if necessary. The input must be executable python code. This library uses sympy to simplify the output.
     """
     from sympy import simplify
 

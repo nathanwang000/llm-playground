@@ -1,19 +1,21 @@
 # import time
-# import sys
+import base64
 import datetime
 import functools
 import glob
+import json
 import logging
 import os
 import pprint
 import re
 import signal
+import ollama
 import subprocess
+import sys
 import tempfile
 from collections import namedtuple
 from collections.abc import Mapping
-from typing import List
-from operator import itemgetter
+from typing import List, Set, Callable, Tuple
 
 import openai
 import tqdm
@@ -21,14 +23,26 @@ import tqdm
 # for caching see https://shorturl.at/tHTV4
 from langchain_classic.embeddings import CacheBackedEmbeddings
 from langchain_classic.storage import LocalFileStore
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_community.vectorstores import Chroma
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+    TextLoader,
+    UnstructuredMarkdownLoader,
+)
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_community import GoogleDriveLoader
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+# from langchain_google_community import GoogleDriveLoader
+from langchain_openai import (
+    AzureChatOpenAI,
+    AzureOpenAIEmbeddings,
+    ChatOpenAI,
+    OpenAIEmbeddings,
+)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from pdf2image import convert_from_path
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion, WordCompleter
@@ -42,8 +56,19 @@ from tenacity import (
     wait_exponential,
 )
 from termcolor import colored
+
+sys.path.append(
+    os.path.join(
+        os.path.dirname(__file__),
+    )
+)
+
 from const import EXCEPTION_PROMPT
-from evaluation import chat_eval
+
+
+# local package to generate openai api from https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/generic-edisonai-prod/llm_idam_token_generator/llm_idam_token_generator-0.1.20240603070355.tar.gz
+from llm_idam_token_generator.idam_token_generator import get_llm_access_token
+
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger(__name__)
@@ -53,6 +78,139 @@ DateRange = namedtuple("DateRange", ["start", "end"])
 DateRange.__repr__ = (
     lambda x: f"{x.start.strftime('%m/%d/%Y')} - {x.end.strftime('%m/%d/%Y')}"
 )
+
+
+def info(message):
+    return colored(message, "cyan")
+
+
+def success(message):
+    return colored(message, "green")
+
+
+def warning(message):
+    return colored(message, "red")
+
+
+def find_last_date_in_dir(dir_path, date_format="%Y-%m-%d"):
+    """
+    List all directories in dir_path.
+    Find the latest date that is not today in the directory.
+    Return the directory name with that date.
+
+    Parameters:
+    - dir_path (str): The path to the directory to search in.
+
+    Returns:
+    - str: The name of the directory with the last date
+    """
+    # Initialize variables
+    last_date = None
+    last_dir = None
+
+    # Iterate over the directories in dir_path
+    for dir_name in os.listdir(dir_path):
+        # Check if the directory is valid
+        if os.path.isdir(os.path.join(dir_path, dir_name)):
+            # Get the date from the directory name
+            try:
+                date = datetime.datetime.strptime(dir_name, date_format).date()
+            except ValueError:
+                continue
+
+            # Check if the date is later than the last_date
+            if last_date is None or date > last_date:
+                last_date = date
+                last_dir = dir_name
+
+    # Return the directory name with the last date
+    return last_dir
+
+
+def pdf2md_vlm(fn: str, output_dir: str = "output_pdf2md", use_azure=False) -> str:
+    """
+    Convert a PDF file to a markdown string using gpt4o
+    flow: pdf->png->md (img_desc)
+
+    Args:
+      fn: PDF file name
+      output_dir: Directory to save the output markdown file (irrelevant for vlm)
+      verbose: Whether to show extracted images
+
+    Returns:
+      md file path
+
+    # >>> pdf2md_vlm('../docs/SMI-hypertension-bundle-emergency-checklist.pdf')
+    # >>> pdf2md_vlm('../debug_docs/1.pdf')
+    # >>> pdf2md_vlm('../debug_docs/2.pdf')
+    # >>> pdf2md_vlm('../debug_docs/3.pdf')
+    """
+    # Get the file name without extension
+    filename = os.path.splitext(os.path.basename(fn))[0]
+    images = convert_from_path(fn)
+    md_txts = []
+
+    os.system(f"mkdir -p {output_dir}/page_contents/")
+    combined_md_file_path = f"{output_dir}/{filename}.md"
+    if os.path.exists(combined_md_file_path):  # caching
+        print(f"skipping creating {combined_md_file_path} as it already exists")
+        return combined_md_file_path
+
+    for i, image in enumerate(images):
+        md_file_path = f"{output_dir}/page_contents/{filename}_page{i}.md"
+        if os.path.exists(md_file_path):
+            print(f"skipping {md_file_path} as it already exists")
+            md_txts.append(open(md_file_path).read())
+            continue
+
+        png_file_path = f"{output_dir}/page_contents/{filename}_page{i}.png"
+        image.save(png_file_path, "PNG")
+        print(info(f"processing page {i + 1}/{len(images)}"))
+        print(image)
+        bot = ChatVisionBot(
+            "transcribe the image as markdown, keeping the structure of the document (e.g., heading and titles); Be sure to describe figures or visuals or embedded images in the format of '![<desc>](fake_url)'; The entire output will be interpreted as markdown, so don't wrap the output in ```markdown``` delimeter",
+            use_azure=use_azure,
+        )
+
+        md_txt = print_openai_stream(
+            bot(
+                "",
+                [os.path.expanduser(png_file_path)],
+            )
+        )
+
+        md_txts.append(md_txt)
+        # save intermediate md files
+        with open(md_file_path, "w") as f:
+            f.write(md_txt)
+
+    with open(combined_md_file_path, "w") as f:
+        f.write("\n----\n".join(md_txts))
+
+    return combined_md_file_path
+
+
+def image2md(image_path, use_azure=False):
+    """
+    return a md file saved
+    """
+    os.system("mkdir -p image_descs")
+    img_name = os.path.basename(image_path).split(".")[0]
+    output_fname = f"image_descs/{img_name}.md"
+    if not os.path.exists(output_fname):
+        bot = ChatVisionBot(stream=True, use_azure=use_azure)
+        print(info(f"Desc of {image_path} as ctxt:"))
+        image_desc = print_openai_stream(
+            bot(
+                "describe the given image in detail: if the image has structure, format it as markdown",
+                [image_path],
+            )
+        )
+        print(f"writing to {output_fname}")
+        with open(output_fname, "w") as f:
+            f.write(image_desc)
+
+    return output_fname
 
 
 def parse_time_range_from_AI_message(message: AIMessage) -> DateRange:
@@ -84,7 +242,74 @@ def parse_time_range_from_AI_message(message: AIMessage) -> DateRange:
     return DateRange(start_dates[0], end_dates[0])
 
 
-def parse_time_range_from_query(query: str, model: str = "gpt-4-turbo") -> DateRange:
+def get_embedding_model_langchain(
+    use_azure=False,
+    model="text-embedding-3-small",
+):
+    if use_azure:
+        print(
+            info("Azure chat api for embedding:"),
+            "Don't sent personal info! use set_option config.use_azure to turn it off",
+        )
+        return AzureOpenAIEmbeddings(
+            azure_deployment=os.environ["EMBEDDING_DEPLOYMENT_MODEL"],
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            api_version=os.environ["EMBEDDING_AZURE_API_VERSION"],
+            azure_endpoint=os.environ["EMBEDDING_ENDPOINT"],
+            openai_api_type=os.environ["EMBEDDING_TYPE"],
+            default_headers={
+                "Authorization": f"Bearer {get_llm_access_token()}",
+                "Content-Type": "application/json",
+                "Ocp-Apim-Subscription-Key": f"{os.environ['APIM_KEY']}",
+            },
+        )
+
+    return OpenAIEmbeddings(model=model)
+
+
+def get_llm_langchain(use_azure=False, model="gpt-4o"):
+    if use_azure:
+        print(
+            info("Azure for langchain model:"),
+            "Don't sent personal info! use set_option config.use_azure to turn it off",
+        )
+        return AzureChatOpenAI(
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_endpoint=os.environ["OPENAI_ENDPOINT"],
+            azure_deployment=os.environ["OPENAI_DEPLOYMENT_MODEL"],
+            api_version=os.environ["OPENAI_AZURE_API_VERSION"],
+            default_headers={
+                "Authorization": f"Bearer {get_llm_access_token()}",
+                "Content-Type": "application/json",
+                "Ocp-Apim-Subscription-Key": os.environ["APIM_KEY"],
+            },
+        )
+    return ChatOpenAI(model=model)
+
+
+def get_llm_openai_client(use_azure=False):
+    if use_azure:
+        print(
+            info("Azure for openai client:"),
+            "Don't sent personal info! use set_option config.use_azure to turn it off",
+        )
+        return openai.AzureOpenAI(
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_endpoint=os.environ["OPENAI_ENDPOINT"],
+            azure_deployment=os.environ["OPENAI_DEPLOYMENT_MODEL"],
+            api_version=os.environ["OPENAI_AZURE_API_VERSION"],
+            default_headers={
+                "Authorization": f"Bearer {get_llm_access_token()}",
+                "Content-Type": "application/json",
+                "Ocp-Apim-Subscription-Key": os.environ["APIM_KEY"],
+            },
+        )
+    return openai.OpenAI()
+
+
+def parse_time_range_from_query(
+    query: str, model: str = "gpt-4-turbo", use_azure=False
+) -> DateRange:
     p = ChatPromptTemplate.from_messages(
         [
             (
@@ -109,11 +334,11 @@ def parse_time_range_from_query(query: str, model: str = "gpt-4-turbo") -> DateR
         ]
     )
     today = datetime.datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
-    llm = ChatOpenAI(model_name=model)
-    chain = p | llm | parse_time_range_from_AI_message
 
+    llm = get_llm_langchain(use_azure=use_azure, model=model)
+    chain = p | llm | parse_time_range_from_AI_message
     result = chain.invoke({"query": query, "today": today})
-    print(colored("parsed time range:", "yellow"), result)
+    print(info("parsed time range:"), result)
     return result
 
 
@@ -159,13 +384,10 @@ def parse_diary_entries(diary_txt) -> List[dict]:
 
 # Function to encode the image
 def encode_image_path(image_path):
-    if image_path.startswith("http"):
-        return image_path
-    import base64
-
+    """from official openai"""
     with open(image_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
-    return f"data:image/jpeg;base64,{base64_image}"
+        return f"data:image/jpeg;base64,{base64_image}"
 
 
 # Function to run subprocess
@@ -275,11 +497,21 @@ def get_input_prompt_session(color="ansired"):
 
 
 # Function to print the stream
-def print_openai_stream(ans):
+def print_ollama_stream(ans) -> str:
+    # https://github.com/ollama/ollama-python
+    res = []
+    for chunk in stream:
+        res.append(chunk["message"]["content"])
+        print(res[-1], end="", flush=True)
+    print()
+    return "".join(res)
+
+
+def print_openai_stream(ans) -> str:
     # from https://cookbook.openai.com/examples/how_to_stream_completions
     if type(ans) is not openai.Stream:
         custom_print(ans)
-        return
+        return str(ans)
 
     collected_chunks = []
     collected_messages = []
@@ -287,15 +519,26 @@ def print_openai_stream(ans):
     for chunk in ans:
         # chunk_time = time.time() - start_time
         collected_chunks.append(chunk)  # save the event response
-        chunk_message = chunk.choices[0].delta.content  # extract the message
+        # extract the message
+        if not len(chunk.choices):
+            continue
+        try:
+            chunk_message = chunk.choices[0].delta.content
+        except Exception:
+            m = chunk.choices[0].messages
+            if len(m) and "delta" in m[0] and "content" in m[0]["delta"]:
+                chunk_message = m[0]["delta"]["content"]  # for azure
+            else:
+                continue
         if chunk_message is not None:
             collected_messages.append(chunk_message)  # save the message
             print(chunk_message, end="", flush=True)
         # print(f"Message received {chunk_time:.2f} seconds after request: {chunk_message}")  # print the delay and text
     print()
+    return "".join(collected_messages)
 
 
-def print_langchain_stream(ans):
+def print_langchain_stream(ans) -> str:
     # from https://python.langchain.com/docs/use_cases/question_answering/streaming/
     output = {}  # for dict chunk
     curr_key = None
@@ -307,15 +550,14 @@ def print_langchain_stream(ans):
                 else:
                     output[key] += chunk[key]
                 if key != curr_key:
-                    print(
-                        f"\n\n{colored(key, 'green')}: {chunk[key]}", end="", flush=True
-                    )
+                    print(f"\n\n{info(key)}: {chunk[key]}", end="", flush=True)
                 else:
                     print(chunk[key], end="", flush=True)
                 curr_key = key
         else:
             print(chunk, end="", flush=True)
     print()
+    return str(output)
 
 
 def custom_print(d):
@@ -367,15 +609,20 @@ def repl(
             print(EXCEPTION_PROMPT, e)
 
         ans = f(user_input)
-        print(colored(output_prompt, "green"))
+        print(success(output_prompt))
         printf(ans)
 
 
 # Function to load the document
 @functools.cache
-def load_doc(fname, in_memory_load=True) -> List[Document]:
+def load_doc(
+    fname, use_azure, in_memory_load=True, convert_pdf2md=False
+) -> List[Document]:
     """
     load the document from the file
+
+    convert_pdf2md: bool indicating whether to convert pdf to md for better parsing
+
     # TODO: change naive load to using lazy load to save memory
     # https://python.langchain.com/docs/modules/data_connection/document_loaders/custom/
     """
@@ -387,29 +634,42 @@ def load_doc(fname, in_memory_load=True) -> List[Document]:
     # save token.json to ../../../diary/secrets/token.json relative to current file path; TODO: use env var
     # follow https://developers.google.com/drive/api/quickstart/python
     token_path = f"{os.path.dirname(__file__)}/../../../diary/secrets/token.json"
-    if fname.startswith("https://drive.google.com"):
-        # see https://python.langchain.com/docs/integrations/document_loaders/google_drive/
-        # e.g., https://drive.google.com/drive/folders/1shC6DvfVAF4LCc5VZdMFoSkafpZv3p0O
-        loader = GoogleDriveLoader(
-            folder_id=fname.split("/")[-1],
-            token_path=token_path,
-            # Optional: configure whether to recursively fetch files from subfolders. Defaults to False.
-            recursive=True,
-        )
-    elif fname.startswith("https://docs.google.com"):
-        # e.g., https://docs.google.com/document/d/1bfaMQ18_i56204VaQDVeAFpqEijJTgvurupdEDiaUQw/edit
-        print(fname)
-        print(fname.split("/")[-2])
-        loader = GoogleDriveLoader(
-            document_ids=[fname.split("/")[-2]],
-            token_path=token_path,
-        )
-    else:
+    # if fname.startswith("https://drive.google.com"):
+    #     # see https://python.langchain.com/docs/integrations/document_loaders/google_drive/
+    #     # e.g., https://drive.google.com/drive/folders/1shC6DvfVAF4LCc5VZdMFoSkafpZv3p0O
+    #     loader = GoogleDriveLoader(
+    #         folder_id=fname.split("/")[-1],
+    #         token_path=token_path,
+    #         # Optional: configure whether to recursively fetch files from subfolders. Defaults to False.
+    #         recursive=True,
+    #     )
+    # elif fname.startswith("https://docs.google.com"):
+    #     # e.g., https://docs.google.com/document/d/1bfaMQ18_i56204VaQDVeAFpqEijJTgvurupdEDiaUQw/edit
+    #     print(fname)
+    #     print(fname.split("/")[-2])
+    #     loader = GoogleDriveLoader(
+    #         document_ids=[fname.split("/")[-2]],
+    #         token_path=token_path,
+    #     )
+    # else:
+    if True:
         ext = fname.split(".")[-1]
         if ext == "pdf":
-            loader = PyPDFLoader(fname)
-        elif ext in ["txt", "md", "org"]:
+            if convert_pdf2md:
+                loader = UnstructuredMarkdownLoader(
+                    pdf2md_vlm(fname, use_azure=use_azure)
+                )
+            else:
+                loader = PyPDFLoader(fname)
+        elif ext in ["txt", "org"]:
             loader = TextLoader(fname)
+        elif ext in ["md", "json"]:
+            # I don't want to use the json loader
+            # b/c it requires knowning what is content using jq
+            loader = UnstructuredMarkdownLoader(fname)
+        elif ext in ["jpeg", "png", "jpg"]:
+            output_fname = image2md(fname, use_azure=use_azure)
+            loader = UnstructuredMarkdownLoader(output_fname)
         else:
             raise ValueError(f"unsupported file extension {ext}")
 
@@ -426,7 +686,7 @@ def strip_multiline(text):
 def human_llm(prompt):
     if not isinstance(prompt, str):
         prompt = prompt.to_string()
-    res = input(colored(prompt + "\nwaiting for response: ", "yellow"))
+    res = input(info(prompt + "\nwaiting for response: "))
     return AIMessage(res)
 
 
@@ -460,35 +720,59 @@ def smap(f, inputs):
     return list(tqdm.tqdm(map(f, inputs), total=len(inputs)))
 
 
-def read_from_dir(dirname, allowed_extensions=["pdf", "md", "txt", "org"]) -> List[str]:
+def read_from_dir(
+    dirname,
+    allowed_extensions=[
+        "pdf",
+        "md",
+        "txt",
+        "org",
+        "png",
+        "jpg",
+        "jpeg",
+    ],
+) -> List[str]:
     """
-    reucrusively read all files in the directory, if the directory is a file, return the file
+    reucrusively read all files in the directory, if the directory is a file, return the file(s)
     """
-    if os.path.isfile(dirname):
-        return [dirname]
-
     fnames = []
-    for fn in glob.glob(dirname + "/*"):
-        if os.path.isdir(fn):
-            fnames.extend(read_from_dir(fn))
-        elif fn.split(".")[-1] in allowed_extensions:
-            fnames.append(fn)
+    if os.path.isfile(dirname):
+        print(f"treat {dirname} as a file")
+        fnames = [dirname]
+    elif os.path.isdir(dirname):
+        print(f"treat {dirname} as a dir")
+        for fn in glob.glob(dirname + "/*"):
+            if os.path.isdir(fn):
+                fnames.extend(read_from_dir(fn))
+            elif fn.split(".")[-1] in allowed_extensions:
+                fnames.append(fn)
+    else:  # treat it as glob pattern
+        print(f"treat {dirname} as a pattern")
+        for fn in glob.glob(dirname):
+            if fn.split(".")[-1] in allowed_extensions:
+                fnames.append(fn)
     return fnames
 
 
 @functools.cache
-def load_split_doc(fname: str, chunk_size: int, chunk_overlap: int) -> List[Document]:
+def load_split_doc(
+    fname: str,
+    use_azure: bool,
+    chunk_size: int,
+    chunk_overlap: int,
+    convert_pdf2md: bool,
+) -> List[Document]:
     """
     load documents, split the text using recursive character text splitter
     TODO: add document level cache using document changed time and the arguments (save the result to disk)
     """
-    print("loading", fname)
-    doc = load_doc(fname)
+    print(info("loading"), fname)
+    doc = load_doc(fname, use_azure=use_azure, convert_pdf2md=convert_pdf2md)
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=chunk_overlap, add_start_index=True
     )
     splits = text_splitter.split_documents(doc)
-    print(fname, "split into", len(splits), "chunks")
+    print(fname, info("split into"), len(splits), "chunks")
     return splits
 
 
@@ -501,37 +785,150 @@ def format_docs(docs: List[Document]) -> str:
     return "\n\n\n".join(formatted)
 
 
+def partial_wrap(f, *pargs, add_note=True, **pkwargs):
+    """
+    behaves like functools.partial but inherent f's doc string and specifies
+    args supplied
+    """
+    partial_f = functools.partial(f, *pargs, **pkwargs)
+
+    @functools.wraps(f)
+    def _f(*args, **kwargs):
+        return partial_f(*args, **kwargs)
+
+    # Modify the docstring
+    if add_note:
+        additional_note = (
+            "\n\nNote:\nThis function has the following arguments supplied:\n"
+        )
+        for i, arg in enumerate(pargs):
+            additional_note += f"    arg[{i}] = {arg}\n"
+        for arg, value in pkwargs.items():
+            additional_note += f"    {arg} = {value}\n"
+
+        if f.__doc__:
+            _f.__doc__ = f.__doc__ + additional_note
+        else:
+            _f.__doc__ = additional_note
+
+    return _f
+
+
+def join_list(item: str, l: List[str]) -> List[str]:
+    """list version of "".join(List[str])
+    >>> join_list(' ', ['a', 'b', 'c'])
+    ['a', ' ', 'b', ' ', 'c']
+    """
+    res = []
+    for i in l:
+        res.append(i)
+        res.append(item)
+    # get rid of the last item
+    return res[:-1]
+
+
+def contain_private_method(attr_path: List[str]) -> bool:
+    for attr in attr_path:
+        if attr.startswith("_"):
+            return True
+    return False
+
+
+def gen_attr_paths_value(
+    obj,
+    curr_path: List[str],
+    seen: Set,
+    depth=0,
+):
+    """
+    return the attr (path, value) pairs
+
+    NOTE: curr_path and seen don't have default of their type because they are mutable
+
+    >>> next(gen_attr_paths_value(1, [], set()))
+    ([], 1)
+
+    # >>> list(gen_attr_paths_value(ShellCompleter(), [], set()))
+    # [(['commands'], []), (['command_completer', 'words'], []), (['command_completer', 'ignore_case'], True), (['command_completer', 'display_dict'], {}), (['command_completer', 'meta_dict'], {}), (['command_completer', 'WORD'], False), (['command_completer', 'sentence'], False), (['command_completer', 'match_middle'], False), (['command_completer', 'pattern'], None)]
+    """
+    # see if obj is primtive types
+    if not hasattr(obj, "__dict__"):
+        yield curr_path, obj
+        return
+
+    # non primitive types need to track whether loop
+    if id(obj) in seen:
+        yield from []
+        return
+    seen.add(id(obj))
+
+    # dir is more general than __dict__ as the later may
+    # not even exist if one uses __slot__ to save memory
+    # also don't account for parent class attribute
+    for attr in dir(obj):  # obj.__dict__.keys():
+        yield from gen_attr_paths_value(
+            getattr(obj, attr, None),
+            curr_path + [attr],
+            seen,
+            depth + 1,
+        )
+
+
 class ShellCompleter(Completer):
     def __init__(self, commands=None):
         if commands is None:
             commands = []
+        self.commands = commands
         self.command_completer = WordCompleter(commands, ignore_case=True)
+
+    def cascade_match(self, text: str, commands: List[str]):
+        """
+        text: str, the text to match
+        commands: list of str, the vocabulary to match against
+
+        cascade rules for matching, if fail on one level, fall back
+        to next level, return results
+        a) starts with the text
+        b) regular expression
+        c) contains the text
+        d) contains the text (case insensitive)
+        e) todo: semantic search
+        """
+        rules = [
+            lambda x: x.startswith(text),
+            lambda x: re.match(text, x),
+            lambda x: text in x,
+            lambda x: text.lower() in x.lower(),
+        ]
+        for rule in rules:
+            res = [x for x in commands if rule(x)]
+            if len(res) != 0:
+                return res
+
+        return []
 
     def get_completions(self, document, complete_event):
         text_before_cursor = document.text_before_cursor
         chunks = text_before_cursor.split()
         endwithWS = re.compile(".*\s$")
-        if len(chunks) <= 1 and not endwithWS.match(text_before_cursor):
+        if len(chunks) == 0 and not endwithWS.match(text_before_cursor):
+            # complete command
             yield from self.command_completer.get_completions(document, complete_event)
+        elif len(chunks) == 1 and not endwithWS.match(text_before_cursor):
+            # cascade match (allow multiple levels of match like starts with, contains, etc.)
+            results = self.cascade_match(chunks[-1], self.commands)
+            yield from [Completion(r, start_position=-len(chunks[-1])) for r in results]
         else:
-            if endwithWS.match(text_before_cursor):
-                text_to_complete = ""
-            else:
-                text_to_complete = os.path.expanduser(chunks[-1])
+            # treat non first argument as path to complete
+            # complete file path
+            text_to_complete = os.path.expanduser(
+                " ".join(chunks[1:]).strip(),
+            )
 
-            quote = ""
-            directory = os.path.dirname(text_to_complete)
-            if directory:
-                if directory[0] in ["'", '"']:
-                    quote = directory[0]
             fname = os.path.basename(text_to_complete)
             for path in glob.glob(text_to_complete + "*"):
                 cfname = os.path.basename(path)
-                if quote == "":
-                    cfname = unquoted_shell_escape(cfname)  # escape without quotes
-                if os.path.isfile(path):
-                    cfname = cfname + quote
-                elif os.path.isdir(path):
+                if os.path.isdir(path):
                     cfname = cfname + "/"
                 yield Completion(cfname, start_position=-len(fname))
 
@@ -542,48 +939,128 @@ class ChatVisionBot:
     def __init__(
         self,
         system="",
-        max_tokens=1000,
         stop="<|endoftext|>",
-        model="gpt-4-turbo",
+        model=None,
         stream=True,
+        use_azure=False,
+        use_ollama=False,  # default model to "llama3.2" when True
+        # max output length
+        max_tokens=4_000,
+        # 4 char/token * 128k tokens = 512k char
+        # summary trigger for long messages
+        max_char_to_summarize=256_000,
     ):
-        self.model = model
+        if model is None:
+            self.model = "gpt4o" if not use_ollama else "llama3.2"
+        else:
+            self.model = model
+
         self.system = system
         self.stop = stop
+        self.use_azure = use_azure
         self.max_tokens = max_tokens
-        self.client = openai.OpenAI()
+        self.max_char_to_summarize = max_char_to_summarize
+
         self.messages = []
         self.stream = stream
+        self.use_ollama = use_ollama
+
         if self.system:
             self.messages.append({"role": "system", "content": system})
 
-    def __call__(self, message, images=None):
+    @property
+    def client(self):
+        # regenerate an client each time so that access token is up to date
+        if self.use_ollama:
+            return ollama.Client()
+        return get_llm_openai_client(use_azure=self.use_azure)
+
+    def summarize_messages(self):
+        """summarize messages when they are too long"""
+        summary = (
+            self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages
+                + [
+                    {
+                        "role": "user",
+                        "content": "summarize conversation up to this point",
+                    }
+                ],
+                stream=False,
+                stop=self.stop,
+                max_tokens=self.max_tokens,
+            )
+            .choices[0]
+            .message.content
+        )
+        print(info("replacing message history with summary:"))
+        print(summary)
+        self.messages = [
+            {"role": "assistant", "content": "Conversation summary:" + summary}
+        ]
+
+    def __call__(
+        self,
+        message: str,
+        images: List[str] = None,
+        message_to_save: str = None,
+        record_user_message_only: bool = False,
+    ):
+        """
+        message_to_save default to message if not provided
+        it is the string to be saved into self.messages
+
+        record_user_message_only:
+        if true, do not ask llm and just record user message
+        """
+        if len(str(self.messages)) > self.max_char_to_summarize:
+            self.summarize_messages()
+
         if images is None:
             images = []
 
-        self.messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": message,
-                    },
-                    *[
-                        {"type": "image_url", "image_url": encode_image_path(image_url)}
-                        for image_url in images
-                    ],
-                ],
-            }
-        )
+        if not message_to_save:
+            message_to_save = message
 
-        result = self.execute()
-        self.messages.append({"role": "assistant", "content": result})
+        new_message = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": message},
+                *[
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": encode_image_path(image_url),
+                        },
+                    }
+                    for image_url in images
+                ],
+            ],
+        }
+
+        self.messages.append(new_message)
+        if not record_user_message_only:
+            result = self.execute()
+        else:
+            result = ""
+        # modify to only save desired message
+        new_message["content"][0]["text"] = message_to_save
+
+        if isinstance(result, str) and result != "":
+            self.messages.append({"role": "assistant", "content": result})
+        else:
+            print(
+                info("result from VisionChatBot is not a string "),
+                "therefore no response history will be saved,"
+                " you can supply response history in code,"
+                " or set stream=False",
+            )
+
         return result
 
     def save_chat(self, filename=""):
         """save chat messages to json file, need to supply filename"""
-        import json
 
         if filename != "":
             with open(filename, "w") as f:
@@ -596,19 +1073,25 @@ class ChatVisionBot:
 
     def load_chat(self, filename):
         """load chat messages from json file"""
-        import json
 
         self.message = json.load(open(filename, "r"))
 
     # @create_retry_decorator(max_tries=3)
     def execute(self):
-        completion = self.client.chat.completions.create(
-            model=self.model,
-            messages=self.messages,
-            max_tokens=self.max_tokens,
-            stream=self.stream,
-            stop=self.stop,
-        )
+        if self.use_ollama:
+            completion = self.client.chat(
+                model=self.model,
+                messages=self.messages,
+                stream=self.stream,
+            )
+        else:
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages,
+                stream=self.stream,
+                stop=self.stop,
+                max_tokens=self.max_tokens,
+            )
         if self.stream:
             return completion
         else:
@@ -616,455 +1099,3 @@ class ChatVisionBot:
             # {"completion_tokens": 86, "prompt_tokens": 26, "total_tokens": 112}
             print(completion.usage)
             return completion.choices[0].message.content
-
-
-#### users of llm
-class User:
-    system_prompt = """
-    You are an assistant for question-answering tasks. 
-    Use the following pieces of retrieved context to answer the question. 
-    If you don't know the answer, just say that you don't know.
-    Cite the exact lines from the context that supports your answer.
-
-    If you happen to know the answer outside the provided context, clearly indicate that and provide the answer.
-
-    ------------------- beginning of tool descriptions -------------------
-    When users ask for chat bot related commands, suggest the following:
-    
-    {tools}
-    """
-
-    def __init__(
-        self,
-        chat=False,
-        model="gpt-4-turbo",
-        human=False,
-        show_context=False,
-        fnames=set(),
-    ):
-        # shared across Users
-        self.__dict__.update({k: v for k, v in locals().items() if k != "self"})
-        self._reset()
-
-    def _add_known_actions(self, cls):
-        """recursively add known actions from the class"""
-        for name in dir(cls):
-            # or could use cls.__dict__.items() to get the method
-            method = getattr(cls, name)
-            if callable(method) and name.startswith("_known_action_"):
-                action_name = name[len("_known_action_") :]
-                if action_name not in self.known_actions:
-                    self.known_actions[action_name] = functools.partial(method, self)
-        for base_cls in cls.__bases__:
-            self._add_known_actions(base_cls)
-
-    def _reset(self, *args, **kwargs):
-        """
-        reset the current chatbot session
-        can be called stating "reset" in the prompt
-        """
-        self.known_actions = {}
-        self._add_known_actions(self.__class__)
-
-        # reset chatbot: human for debugging
-        if self.human:
-            self.chatbot = human_llm
-        else:
-            self.chatbot = ChatVisionBot(
-                self._known_action_get_prompt(), model=self.model
-            )
-            self.known_actions["save_chat"] = self.chatbot.save_chat
-
-    def _known_action_welcome(self, *args) -> str:
-        """
-        a piece of text to show when the user starts the program
-        """
-        raise NotImplementedError(
-            "_known_action_welcome method not implemented, should be implemented in the subclass"
-        )
-
-    def _known_action_show_settings(self, *args, **kwargs):
-        """show the current settings of the chatbot"""
-        return pprint.pformat(self.__dict__)
-
-    def _known_action_toggle_show_context(self, *args, **kwargs) -> str:
-        """toggle showing the context of the question"""
-        self.show_context = not self.show_context
-        return f"showing context: {self.show_context}"
-
-    def _known_action_get_prompt(self, *args, **kwargs):
-        '''return the prompt of the current chatbot; use this tool when users ask for the prompt
-        such as "show me your prompt"'''
-        return "You are a generic AI. Tell user to implement _known_action_get_prompt in the subclass."
-
-    def _known_action_list_tools(self, *args, **kwargs):
-        """return a string describing the available tools to the chatbot; list all tools"""
-        tools = []
-        for k, v in self.known_actions.items():
-            tools.append("{}: \n{}".format(k, strip_multiline(v.__doc__)))
-        return "\n\n".join(tools)
-
-    def _known_action_add_files(self, dirname):
-        """add a directory to the current chatbot, if given a file, add the file instead"""
-        if dirname.startswith("https://"):
-            print("adding", dirname)
-            self.fnames.add(dirname)
-            return self._known_action_ls_ctx_files()
-
-        dirname = os.path.expanduser(dirname)
-        fnames = read_from_dir(dirname)
-        print("found", len(fnames), "files in", dirname)
-        print(fnames)
-        self.fnames.update(fnames)
-        return self._known_action_ls_ctx_files()
-
-    def _known_action_rm_files(self, pattern):
-        r"""
-        remove files in the current chatbot,
-        pattern is regex patterns to match the files
-
-        doctest
-        >>> user = User()
-        >>> user.fnames = {"file1.txt", "file2.txt", "file3.txt"}
-        >>> user._known_action_rm_files("file[1-2].txt")
-        2 files matched the pattern file[1-2].txt : ['file1.txt', 'file2.txt']
-        'file3.txt'
-        >>> user._known_action_rm_files(".*")
-        1 files matched the pattern .* : ['file3.txt']
-        ''
-        """
-
-        # match pattern to self.fnames
-        matched_files = set()
-        for fname in self.fnames:
-            try:
-                if re.match(f"^{pattern}$", fname):
-                    matched_files.add(fname)
-            except re.error as e:
-                print(EXCEPTION_PROMPT, "in regex", pattern, e)
-
-        print(
-            len(matched_files),
-            "files matched the pattern",
-            pattern,
-            ":",
-            sorted(list(matched_files)),
-        )
-
-        # remove the matched files
-        self.fnames -= matched_files
-
-        return self._known_action_ls_ctx_files()
-
-    def _known_action_ls_ctx_files(self, *args, **kwargs):
-        """list all files used in context in the current chatbot"""
-        return "\n".join(self.fnames)
-
-    def get_completer(self):
-        """return autocompleter the current text with the prompt toolkit package"""
-        return ShellCompleter(self.known_actions.keys())
-
-    def get_context(self, question: str) -> str:
-        """return the context of the question"""
-        raise NotImplementedError(
-            "get_context method not implemented, should be implemented in the subclass"
-        )
-
-    def __call__(self, prompt: str):
-        prompt = prompt.strip()
-        prev_directory = os.getcwd()
-
-        try:
-            # first try known actions
-            if prompt and prompt.split()[0] in self.known_actions:
-                k = prompt.split()[0]
-                v = prompt[len(k) :].strip()
-                print(f"executing bot command {k} {v}")
-                return self.known_actions[k](v)
-
-            # then try to execute the command
-            if prompt.startswith("cd "):
-                # Extract the directory from the input
-                directory = prompt.split("cd ", 1)[1].strip()
-                if directory == "-":
-                    directory = prev_directory
-                else:
-                    prev_directory = os.getcwd()
-                # Change directory within the Python process
-                os.chdir(directory)
-                return directory
-            else:
-                # subprocess start a new process, thus forgetting aliases and history
-                # solution: override system command by prepending to $PATH
-                # and use shared history file (search chatgpt)
-
-                # handle control-c correctly for child process (o/w kill parent python process)
-                # if don't care, then uncomment the following line, and comment out others
-                # subprocess.run(prompt, check=True, shell=True)
-                return run_subprocess_with_interrupt(prompt, check=True, shell=True)
-
-        except KeyboardInterrupt:
-            print(EXCEPTION_PROMPT, "KeyboardInterrupt")  # no need to ask llm
-            return None
-        except Exception as e:
-            print(EXCEPTION_PROMPT, e, colored("asking llm", "yellow"))
-
-            context = chat_eval(self.get_context)(prompt)
-            if not context:
-                print(EXCEPTION_PROMPT, "no context found")
-            prompt = f"Context: {context}\n\nQuestion: {prompt}"
-            print("done retrieving relevant context")
-
-            if self.show_context:
-                print(colored("Context:\n", "green"), context)
-
-            # handle c-c correctly, o/w kill parent python process (e.g., self.chatbot(prompt))
-            # so far mp based method have pickle issues
-            try:
-                result = self.chatbot(prompt)
-            except KeyboardInterrupt:
-                print(
-                    EXCEPTION_PROMPT,
-                    "Keyboard interrupt when sending to the guru (llm):",
-                )
-                result = None
-
-        if not self.chat:
-            self._reset()
-        return result
-
-
-class DiaryReader(User):
-    system_prompt = """
-    You are given a user profile and the user's diary entries.
-    You will act like you are the user and respond to questions about the user.
-    When answering questions, always indicate whether you cite from diary or profile (with dates if possible).
-    
-    Be concise unless instructed otherwise.
-
-    Response tone: {tone}
-
-    ------------------- beginning of tool descriptions -------------------
-    When users ask for chat bot related commands, suggest the following:
-    
-    {tools}
-
-    -------------------- end of tool descriptions --------------------
-
-    user profile: ```{profile}```
-    """
-
-    def __init__(
-        self,
-        diary_fn,
-        profile_fn,
-        # needed with base class
-        chat=False,
-        model="gpt-4-turbo",
-        human=False,
-        fnames=set(),
-    ):
-        self.profile = load_doc(profile_fn)[0].page_content
-        self.tone = "less serious"
-        super().__init__(
-            chat=chat, model=model, human=human, show_context=False, fnames=fnames
-        )
-        # add diary_fn to fnames
-        self._known_action_add_files(diary_fn)
-
-    def _known_action_change_tone(self, *args, **kwargs) -> str:
-        """change the tone of the chatbot to be more serious or more casual"""
-        if len(args) == 0 or args[0].strip() == "":
-            return self.tone
-        self.tone = args[0]
-        return self.tone
-
-    def _known_action_welcome(self, *args) -> str:
-        """
-        a piece of text to show when the user starts the program
-        """
-        message = subprocess.check_output(["figlet", "Know thyself"]).decode()
-        inspire = colored(
-            "You are creative, openminded, and ready to learn new things about this absurd world!",
-            "yellow",
-        )
-        quote = (
-            colored("Random words of wisdom:\n\n", "green")
-            + subprocess.check_output(["fortune"]).decode()
-        )
-        reminder = "\n".join(
-            [
-                colored("Ideas to try:\n", "green"),
-                "- learn a new emacs (c-h r) or python trick",
-                "- update cheatsheet about me: https://shorturl.at/ltwKW",
-                "- my work items are in https://shorturl.at/HLP59",
-            ]
-        )
-        user_prompt = "\n".join(
-            [
-                colored("You may wanna ask:\n", "green"),
-                "- what should I learn next?",
-                "- improvement from last week?",
-                "- things to work on to better physical and mental health?",
-            ]
-        )
-        return f"{message}\n{inspire}\n\n{quote}\n{reminder}\n\n{user_prompt}\n"
-
-    def _known_action_get_prompt(self, *args, **kwargs):
-        '''return the prompt of the current chatbot; use this tool when users ask for the prompt
-        such as "show me your prompt"'''
-        return self.system_prompt.format(
-            tools=self._known_action_list_tools(), profile=self.profile, tone=self.tone
-        )
-
-    def get_context(self, question) -> str:
-        """specific retriever for diary"""
-        diary = format_docs(
-            list(
-                flatten(
-                    smap(functools.partial(load_doc, in_memory_load=True), self.fnames)
-                )
-            )
-        )
-
-        try:
-            try:
-                # extract the diary context
-                entries = parse_diary_entries(diary)
-            except Exception as e:
-                print(
-                    EXCEPTION_PROMPT,
-                    e,
-                    "in get_context(), using full entries",
-                )
-                return diary
-
-            s_date, e_date = parse_time_range_from_query(
-                question
-            )  # fixme: maybe use self.model, but gpt3.5 doesn't work good enough
-            # test if each entry is relevant to the time in the question
-            entries = [e for e in entries if s_date <= e["date"] <= e_date]
-        except Exception as e:
-            entries = sorted(entries, key=itemgetter("date"), reverse=True)[:7]
-            print(
-                EXCEPTION_PROMPT,
-                e,
-                "in diary_content_retriever(), using last 7 entries sorted by date",
-            )
-            print([e["date"].strftime("%m/%d/%Y") for e in entries])
-
-        return "\n\n".join([e["entry"] for e in entries])
-
-
-class DocReader(User):
-    system_prompt = """
-    You are an assistant for question-answering tasks. 
-    Use the following pieces of retrieved context to answer the question. 
-    If you don't know the answer, just say that you don't know.
-    Cite the exact lines from the context that supports your answer.
-
-    If you happen to know the answer outside the provided context, clearly indicate that and provide the answer.
-
-    ------------------- beginning of tool descriptions -------------------
-    When users ask for chat bot related commands, suggest the following:
-    
-    {tools}
-    """
-
-    def __init__(
-        self,
-        chunk_size=1000,
-        chunk_overlap=200,
-        # needed with base class
-        chat=False,
-        model="gpt-4-turbo",
-        human=False,
-        fnames=set(),
-    ):
-        super().__init__(
-            chat=chat, model=model, human=human, show_context=False, fnames=fnames
-        )
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-        # default
-        self.max_n_context = 3
-
-    def _known_action_welcome(self, *args) -> str:
-        """
-        a piece of text to show when the user starts the program
-        """
-        message = subprocess.check_output(["figlet", "Ask Docs"]).decode()
-        inspire = colored(
-            "You are creative, openminded, and ready to learn new things about this absurd world!",
-            "yellow",
-        )
-        quote = (
-            colored("Random words of wisdom:\n\n", "green")
-            + subprocess.check_output(["fortune"]).decode()
-        )
-        reminder = "\n".join(
-            [
-                colored("Ideas to try:\n", "green"),
-                "- Explaination hypothesis: A model's true test of generality lies in its ability to eloquently convey its insights to minds beyond its own.",
-                "- Idea: generate explaination to help another model increase its performance -> in turn increase the performance of the first model",
-                "- my work items are in https://shorturl.at/HLP59",
-            ]
-        )
-        user_prompt = "\n".join(
-            [
-                colored("You may wanna ask:\n", "green"),
-                "- what should I research next?",
-                "- insight from my research diary last week?",
-                "- add to occasion ideas for event planning: https://shorturl.at/gzQ17",
-            ]
-        )
-        other_tips = "\n".join(
-            [
-                colored("To add google drive access:", "green"),
-                "- follow https://developers.google.com/drive/api/quickstart/python # run the code to get token.json",
-                "- remember to change scopes to .../auth/drive and auth/docs in the app setting and when running the script",
-                "- save token.json to secrets/token.json",
-                "- go to the googledriveloader file in langchain communit and change the scope accordingly",
-            ]
-        )
-        return f"{message}\n{inspire}\n\n{quote}\n{reminder}\n\n{user_prompt}\n\n{other_tips}\n"
-
-    def _known_action_set_n_context(self, n):
-        """set the number of context to show"""
-        self.max_n_context = int(n)
-
-    def _known_action_get_prompt(self, *args, **kwargs):
-        '''return the prompt of the current chatbot; use this tool when users ask for the prompt
-        such as "show me your prompt"'''
-        return self.system_prompt.format(tools=self._known_action_list_tools())
-
-    def get_context(self, question) -> str:
-        """return the context of the question"""
-        if not self.fnames:
-            return ""
-
-        # Load, chunk and index the contents: load doc + chunk and embeddings are cached
-        # TODO: use pmap later for multiprocessing, after figuring out how to cache in mp
-        docs = list(
-            flatten(
-                smap(
-                    functools.partial(
-                        load_split_doc,
-                        chunk_size=self.chunk_size,
-                        chunk_overlap=self.chunk_overlap,
-                    ),
-                    self.fnames,
-                )
-            )
-        )
-        store = LocalFileStore("./cache/")
-        underlying_embeddings = OpenAIEmbeddings()
-        cached_embedder = CacheBackedEmbeddings.from_bytes_store(
-            underlying_embeddings, store, namespace=underlying_embeddings.model
-        )
-        vectorstore = Chroma.from_documents(documents=docs, embedding=cached_embedder)
-
-        # Retrieve and generate using the relevant snippets of the blog.
-        retriever = vectorstore.as_retriever(search_kwargs={"k": self.max_n_context})
-
-        return (retriever | format_docs).invoke(question)
