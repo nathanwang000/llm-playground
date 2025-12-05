@@ -23,8 +23,8 @@ from const import EXCEPTION_PROMPT
 from evaluation import chat_eval
 
 # for caching see https://shorturl.at/tHTV4
-from langchain.embeddings import CacheBackedEmbeddings
-from langchain.storage import LocalFileStore
+from langchain_classic.embeddings import CacheBackedEmbeddings
+from langchain_classic.storage import LocalFileStore
 from langchain_community.vectorstores import Chroma
 from termcolor import colored
 from utils import (
@@ -814,7 +814,7 @@ class Coder(User):
         )
 
         question_prompt = (
-            "=====question start=====\n" f"{question}\n" "=====question end=====\n\n"
+            f"=====question start=====\n{question}\n=====question end=====\n\n"
         )
 
         # was using plotext but llm don't know it well
@@ -893,7 +893,7 @@ Note that your code will be run from scratch, so redefine all variables!
 
         # pass output to llm
         for i in range(n_iterations):
-            print(info(f"running code iteration {i+1}/{n_iterations}"))
+            print(info(f"running code iteration {i + 1}/{n_iterations}"))
 
             code = parse_code(code_str)
             print(info("code block start"))
@@ -964,7 +964,7 @@ If you don't need to gather more info, start response with no and explain why no
             "Your job is to answer user question.\n"
             "You are given a list of dataframes."
             f"Here are snapshot of each dataframe\n\n {df_snapshots_str}\n"
-            f"The data is loaded into duckdb database where you can access each dataframe as table_i where i runs from 0 to {len(dfs)-1}.\n"
+            f"The data is loaded into duckdb database where you can access each dataframe as table_i where i runs from 0 to {len(dfs) - 1}.\n"
             "e.g., you could do `SELECT * FROM table_0 LIMIT 5`\n"
             "duckdb sql syntax for date manipulation is different from regular sql.\n"
             "For example use `STRFTIME(current_date - INTERVAL 1 MONTH, '%Y-%m')` to get the current date - 1 month in 'YYYY-MM' format.\n"
@@ -984,12 +984,12 @@ If you don't need to gather more info, start response with no and explain why no
         )
 
         question_prompt = (
-            "=====question start=====\n" f"{question}\n" "=====question end=====\n\n"
+            f"=====question start=====\n{question}\n=====question end=====\n\n"
         )
 
         code_rule = f"""
 Write a duckdb sql statment to collect information you need.
-Remember you can access tables from table_0 to table_{len(dfs)-1}
+Remember you can access tables from table_0 to table_{len(dfs) - 1}
 You have {n_iterations} rounds to interact with the user;
 choose your response wisely (e.g., you can use join stmt to maximize information in each round)
 Your code should be enclosed in a ``` block
@@ -1038,7 +1038,7 @@ Remember if a field name contain a space or special character, you need to enclo
 
         # pass output to llm
         for i in range(n_iterations):
-            print(info(f"running code iteration {i+1}/{n_iterations}"))
+            print(info(f"running code iteration {i + 1}/{n_iterations}"))
 
             code = parse_code(code_str)
             print(info("code block start"))
@@ -1164,7 +1164,7 @@ You are given {n_iterations} rounds to interact with user; so choose your resons
         )
 
         question_prompt = (
-            "=====question start=====\n" f"{question}\n" "=====question end=====\n\n"
+            f"=====question start=====\n{question}\n=====question end=====\n\n"
         )
 
         code_rule = f"""
@@ -1216,7 +1216,7 @@ Don't start your command with jq! Just give the filter pattern in ``` block!
 
         # pass output to llm
         for i in range(n_iterations):
-            print(info(f"running code iteration {i+1}/{n_iterations}"))
+            print(info(f"running code iteration {i + 1}/{n_iterations}"))
 
             code = parse_code(code_str)
             if not (code.strip() == "" and code_str.lower().startswith("no")):

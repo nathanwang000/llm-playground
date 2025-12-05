@@ -15,15 +15,12 @@ import sys
 import tempfile
 from collections import namedtuple
 from collections.abc import Mapping
-from typing import List, Set, Callable, Tuple
+from typing import List, Set
 
 import openai
 import tqdm
 
 # for caching see https://shorturl.at/tHTV4
-from langchain_classic.embeddings import CacheBackedEmbeddings
-from langchain_classic.storage import LocalFileStore
-from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import (
     PyPDFLoader,
     TextLoader,
@@ -64,10 +61,6 @@ sys.path.append(
 )
 
 from const import EXCEPTION_PROMPT
-
-
-# local package to generate openai api from https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/generic-edisonai-prod/llm_idam_token_generator/llm_idam_token_generator-0.1.20240603070355.tar.gz
-from llm_idam_token_generator.idam_token_generator import get_llm_access_token
 
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -247,6 +240,9 @@ def get_embedding_model_langchain(
     model="text-embedding-3-small",
 ):
     if use_azure:
+        # local package to generate openai api from https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/generic-edisonai-prod/llm_idam_token_generator/llm_idam_token_generator-0.1.20240603070355.tar.gz
+        from llm_idam_token_generator.idam_token_generator import get_llm_access_token
+
         print(
             info("Azure chat api for embedding:"),
             "Don't sent personal info! use set_option config.use_azure to turn it off",
@@ -269,6 +265,9 @@ def get_embedding_model_langchain(
 
 def get_llm_langchain(use_azure=False, model="gpt-4o"):
     if use_azure:
+        # local package to generate openai api from https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/generic-edisonai-prod/llm_idam_token_generator/llm_idam_token_generator-0.1.20240603070355.tar.gz
+        from llm_idam_token_generator.idam_token_generator import get_llm_access_token
+
         print(
             info("Azure for langchain model:"),
             "Don't sent personal info! use set_option config.use_azure to turn it off",
@@ -293,6 +292,9 @@ def get_llm_openai_client(use_azure=False):
             info("Azure for openai client:"),
             "Don't sent personal info! use set_option config.use_azure to turn it off",
         )
+        # local package to generate openai api from https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/generic-edisonai-prod/llm_idam_token_generator/llm_idam_token_generator-0.1.20240603070355.tar.gz
+        from llm_idam_token_generator.idam_token_generator import get_llm_access_token
+
         return openai.AzureOpenAI(
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
             azure_endpoint=os.environ["OPENAI_ENDPOINT"],
