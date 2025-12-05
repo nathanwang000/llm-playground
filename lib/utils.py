@@ -19,8 +19,8 @@ import openai
 import tqdm
 
 # for caching see https://shorturl.at/tHTV4
-from langchain.embeddings import CacheBackedEmbeddings
-from langchain.storage import LocalFileStore
+from langchain_classic.embeddings import CacheBackedEmbeddings
+from langchain_classic.storage import LocalFileStore
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Function to parse time range using llm
 DateRange = namedtuple("DateRange", ["start", "end"])
 DateRange.__repr__ = (
-    lambda x: f'{x.start.strftime("%m/%d/%Y")} - {x.end.strftime("%m/%d/%Y")}'
+    lambda x: f"{x.start.strftime('%m/%d/%Y')} - {x.end.strftime('%m/%d/%Y')}"
 )
 
 
